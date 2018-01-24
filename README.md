@@ -2,6 +2,19 @@
 
 Trying to write a TODO app with micro services architecture
 
+## Project structure
+
+- `admin` - `Admin` service
+- `apigateway` - `APIGateway` service
+- `auth` - `Auth` service
+- `build` - builds output directory
+- `events` - `Events` service
+- `logger` - `Logger` service
+- `registry` - `Registry` service
+- `todo` - `TODO` service
+- `vendor` - project dependencies
+  > Use [dep](github.com/golang/dep/cmd/dep) to install dependencies
+
 ## Services
 
 ### Service list
@@ -46,12 +59,19 @@ Trying to write a TODO app with micro services architecture
 2. `Admin` updates log every `n` seconds
 3. `Admin` queries `Registry` for services status  
 
+#### `APIGateway` service's communication with `Auth` 
+
+0. Service queries `Registry` for the suitable `Auth` service
+1. Service authorizes user by querying `Auth` service
+2. Service authenticates some action by querying `Auth` service
+
 ### Features
 
 - `Registry`:
-    - [ ] Works on both gRPC and HTTP
+    - [ ] Works on both gRPC
+    - [ ] Works on HTTP
     - [ ] Keeps up-to-date list by performing service instance health checks
-    - [ ] Supports self-registering requests
+    - [ ] Supports self-register requests
     - [ ] Responses with service types list
     - [ ] Responses with service type instances list
     - [ ] Responses with address of suitable requested service (balancing)
@@ -59,12 +79,41 @@ Trying to write a TODO app with micro services architecture
     - [ ] Responses with error message if service is unavailable
     - [ ] Restricts querying internal services for external clients
     - [ ] Restricts querying admin services for external clients
+    - [ ] Writes logs to `Logger`
 - `APIGateway`:
     - [ ] Proxies HTTP request to a corresponding instance, converting from HTTP to internal protocol
     - [ ] Queries `Registry` for suitable service instance
     - [ ] Responses with HTTP error if service is unavailable
     - [ ] Manages headers
+    - [ ] Writes logs to `Logger`
 - `Auth`:
     - [ ] Registers new users
     - [ ] Authorizes users
-    - [ ] 
+    - [ ] Provides auth tokens for authorized users
+    - [ ] Authenticates users by their auth tokens
+- `TODO`:
+    - [ ] Stores TODO tasks
+    - [ ] Stores TODO lists of user
+    - [ ] Allows adding TODO tasks
+    - [ ] Allows editing TODO tasks
+    - [ ] Allows deleting TODO tasks
+    - [ ] Allows sharing TODO tasks with different users
+    - [ ] Writes logs to `Logger`
+- `Admin`:
+    - [ ] Authenticates admin in WEB UI
+    - [ ] Collects logs from `Logger`
+    - [ ] Shows health status of all services
+    - [ ] Periodically updates status and logs
+- `Logger`:
+    - [ ] Receives logs from different services
+    - [ ] Stores them by service type
+    - [ ] Stores them by service type instance
+    - [ ] Responses with logs of specific service type
+    - [ ] Responses with logs of specific service type instance
+    - [ ] Persists logs on disks
+- `Events`:
+    - [ ] Receives subscribe requests
+    - [ ] Receives events
+    - [ ] Notifies subscribers
+    - [ ] Writes logs to `Logger`
+    

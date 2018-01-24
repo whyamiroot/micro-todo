@@ -1,1 +1,5 @@
 package registry
+
+func main() {
+
+}
