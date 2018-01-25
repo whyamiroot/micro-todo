@@ -17,13 +17,14 @@ message ServiceTypesList {
  */
 message RegistryResponse {
     enum Code {
-        OK = 0;
-        INVALID = 1;
-        FAIL = 2;
-        CANCELED = 3;
-        NOT_IMPLEMENTED = 4;
-        NULL = 5;
-        EXISTS = 6;
+        __DEFAULT = 0;
+        OK = 1;
+        INVALID = 2; // Signature is invalid
+        FAIL = 3; // Internal error
+        CANCELED = 4; // Action cancelled on server
+        NOT_IMPLEMENTED = 5; // Health route is not responding
+        NULL = 6; // No service is received
+        EXISTS = 7; // Service is already registered
     }
 
     Code status = 1;
@@ -41,4 +42,17 @@ message Service {
 
 message ServiceList {
     repeated Service services = 1;
+}
+
+message ServiceInfo {
+    string type = 1;
+    int32 index = 2;
+}
+
+message InstanceInfo {
+    string instanceName = 1;
+}
+
+message Health {
+    bool up = 1;
 }

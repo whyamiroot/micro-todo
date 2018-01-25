@@ -68,15 +68,17 @@ Trying to write a TODO app with micro services architecture
 ### Features
 
 - `Registry`:
-    - [ ] Works on both gRPC
-    - [ ] Works on HTTP
+    - [x] Works on gRPC
+    - [x] Works on HTTP
     - [ ] Keeps up-to-date list by performing service instance health checks
-    - [ ] Supports self-register requests
-    - [ ] Responses with service types list
-    - [ ] Responses with service type instances list
+    - [x] Supports self-register requests
+    - [x] Responses with service types list
+    - [x] Responses with service type instances list
     - [ ] Responses with address of suitable requested service (balancing)
+    - [x] Has health HTTP endpoint
+    - [x] Has health RPC method
     - [ ] Proxies health check requests to service instances
-    - [ ] Responses with error message if service is unavailable
+    - [x] Responses with error message if service is unavailable
     - [ ] Restricts querying internal services for external clients
     - [ ] Restricts querying admin services for external clients
     - [ ] Writes logs to `Logger`

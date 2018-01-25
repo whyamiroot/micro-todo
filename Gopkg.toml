@@ -19,10 +19,13 @@
 #  name = "github.com/x/y"
 #  version = "2.4.0"
 
-required = ["github.com/golang/protobuf",
-            "github.com/golang/protobuf/protoc-gen-go",
+required = ["github.com/golang/protobuf/protoc-gen-go",
             "github.com/grpc-ecosystem/grpc-gateway/protoc-gen-swagger",
             "github.com/grpc-ecosystem/grpc-gateway/protoc-gen-grpc-gateway"]
+
+[[constraint]]
+  name = "github.com/google/protobuf"
+  branch = "3.5.x"
 
 [[constraint]]
   name = "google.golang.org/grpc"
@@ -43,3 +46,7 @@ required = ["github.com/golang/protobuf",
 [[constraint]]
   branch = "master"
   name = "golang.org/x/net"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/jasonlvhit/gocron"

@@ -1,11 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/whyamiroot/micro-todo/proto"
 	"github.com/whyamiroot/micro-todo/proto/utils"
 	"golang.org/x/net/context"
+	"io/ioutil"
+	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -14,6 +18,87 @@ type Registry struct {
 	Instances map[string][]*proto.Service
 }
 
+func (r *Registry) GetHealth(context.Context, *proto.Empty) (*proto.Health, error) {
+	return &proto.Health{Up: true}, nil
+}
+
+//GetInfo returns service instance information
+func (r *Registry) GetInfo(c context.Context, si *proto.ServiceInfo) (*proto.Service, error) {
+	if si == nil {
+		return nil, fmt.Errorf("NULL")
+	}
+	res := make(chan *proto.Service)
+
+	go func() {
+		r.lock.Lock()
+		defer r.lock.Unlock()
+		if l := len(r.Instances[si.Type]); l != 0 && int(si.Index) < l && r.Instances[si.Type][si.Index] != nil {
+			res <- r.Instances[si.Type][si.Index]
+		} else {
+			res <- nil
+		}
+	}()
+
+	for {
+		select {
+		case <-c.Done():
+			//TODO add logging to Logger
+			return nil, fmt.Errorf("CANCELED")
+		case service := <-res:
+			if service == nil {
+				return nil, fmt.Errorf("INVALID")
+			} else {
+				return service, nil
+			}
+		default:
+		}
+	}
+}
+
+//GetInstanceInfo returns service instance information. Instance is specified in a following format - `type-index`
+func (r *Registry) GetInstanceInfo(c context.Context, i *proto.InstanceInfo) (*proto.Service, error) {
+	if i == nil {
+		return nil, fmt.Errorf("NULL")
+	}
+	req := strings.Split(i.InstanceName, "-")
+	if len(req) != 2 {
+		return nil, fmt.Errorf("INVALID")
+	}
+
+	serviceType := req[0]
+	index, err := strconv.Atoi(req[1])
+	if err != nil {
+		return nil, fmt.Errorf("INVALID")
+	}
+
+	res := make(chan *proto.Service)
+	go func() {
+		r.lock.Lock()
+		defer r.lock.Unlock()
+		if l := len(r.Instances[serviceType]); l != 0 && int(index) < l && r.Instances[serviceType][index] != nil {
+			res <- r.Instances[serviceType][index]
+		} else {
+			res <- nil
+		}
+	}()
+
+	for {
+		select {
+		case <-c.Done():
+			//TODO add logging to Logger
+			return nil, fmt.Errorf("CANCELED")
+		case service := <-res:
+			if service == nil {
+				return nil, fmt.Errorf("INVALID")
+			} else {
+				return service, nil
+			}
+		default:
+		}
+	}
+}
+
+//NewRegistry returns new Registry instance
 func NewRegistry() *Registry {
 	reg := &Registry{Instances: make(map[string][]*proto.Service)}
 	return reg
@@ -41,13 +126,14 @@ func (r *Registry) ListServicesTypes(c context.Context, _ *proto.Empty) (*proto.
 			types = append(types, &proto.ServiceType{Type: key})
 		}
 		res <- types
+		return
 	}()
 
 	for {
 		select {
 		case <-c.Done():
 			//TODO add logging to Logger
-			return nil, fmt.Errorf("CANCEL")
+			return nil, fmt.Errorf("CANCELED")
 		case types := <-res:
 			return &proto.ServiceTypesList{Types: types}, nil
 		default:
@@ -67,13 +153,14 @@ func (r *Registry) ListByType(c context.Context, st *proto.ServiceType) (*proto.
 		r.lock.Lock()
 		defer r.lock.Unlock()
 		res <- r.Instances[st.Type]
+		return
 	}()
 
 	for {
 		select {
 		case <-c.Done():
 			//TODO add logging to Logger
-			return nil, fmt.Errorf("CANCEL")
+			return nil, fmt.Errorf("CANCELED")
 		case services := <-res:
 			return &proto.ServiceList{Services: services}, nil
 		default:
@@ -102,6 +189,7 @@ func (r *Registry) Register(c context.Context, s *proto.Service) (*proto.Registr
 			} else {
 				res <- &proto.RegistryResponse{Status: proto.RegistryResponse_EXISTS, Message: "Service is already registered"}
 			}
+			return
 		}
 
 		if b, err := r.isValidSignature(s); !b {
@@ -110,6 +198,28 @@ func (r *Registry) Register(c context.Context, s *proto.Service) (*proto.Registr
 			} else {
 				res <- &proto.RegistryResponse{Status: proto.RegistryResponse_INVALID, Message: "Service signature is invalid"}
 			}
+			return
+		}
+
+		healthURL := "http://" + s.Host + ":8080" + s.HealthRoute
+		resp, err := http.Get(healthURL)
+		if err != nil {
+			res <- &proto.RegistryResponse{Status: proto.RegistryResponse_NOT_IMPLEMENTED, Message: "Health check failed"}
+			return
+		}
+		defer resp.Body.Close()
+
+		bytes, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			res <- &proto.RegistryResponse{Status: proto.RegistryResponse_NOT_IMPLEMENTED, Message: "Health check failed"}
+			return
+		}
+
+		health := &proto.Health{}
+		err = json.Unmarshal(bytes, health)
+		if err != nil {
+			res <- &proto.RegistryResponse{Status: proto.RegistryResponse_FAIL, Message: "Health check failed"}
+			return
 		}
 
 		r.Instances[s.Type] = append(r.Instances[s.Type], s)
@@ -120,7 +230,7 @@ func (r *Registry) Register(c context.Context, s *proto.Service) (*proto.Registr
 		select {
 		case <-c.Done():
 			//TODO add logging to Logger
-			return &proto.RegistryResponse{Status: proto.RegistryResponse_CANCELED, Message: "Registration canceled"}, nil
+			return &proto.RegistryResponse{Status: proto.RegistryResponse_CANCELED, Message: "Registration cancelled"}, nil
 		case response := <-res:
 			return response, nil
 		default:
