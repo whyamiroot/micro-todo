@@ -3,71 +3,32 @@ syntax = "proto3";
 package proto;
 
 import "google/api/annotations.proto";
-
-message Empty {}
-
-message ServiceType {
-    string type = 1;
-}
-
-message ServiceTypesList {
-    repeated ServiceType types = 1;
-}
-
-/* RegistryResponse represents response from Registry service
- * It contains status code and optional message
- */
-message RegistryResponse {
-    enum Code {
-        OK = 0;
-        INVALID = 1;
-        FAIL = 2;
-        CANCELED = 3;
-    }
-
-    Code status = 1;
-    string message = 2;
-}
-
-message Service {
-    string type = 1;
-    string host = 2;
-    int32 port = 3;
-    repeated string business_routes = 4;
-    string health_route = 5;
-    string signature = 6;
-}
-
-message ServiceList {
-    repeated Service services = 1;
-}
+import "messages.proto";
 
 service RegistryService {
 
     rpc Register(Service) returns (RegistryResponse) {
         option (google.api.http) = {
-            post: "/v1/registry/service/register"
+            post: "/service/register"
             body: "*"
         };
     }
 
     rpc ListServicesTypes(Empty) returns (ServiceTypesList) {
         option (google.api.http) = {
-            get: "/v1/registry/service/types"
+            get: "/service/types"
         };
     }
 
     rpc ListByType(ServiceType) returns (ServiceList) {
         option (google.api.http) = {
-            post: "/v1/registry/service/list"
-            body: "*"
+            get: "/service/types/{type}"
         };
     }
 
     rpc BestInstance(ServiceType) returns (Service) {
         option (google.api.http) = {
-            post: "/v1/registry/service/"
-            body: "*"
+            get: "/service/types/{type}/best"
         };
     }
 }

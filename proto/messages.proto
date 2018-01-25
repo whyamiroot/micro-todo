@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package proto;
+
+message Empty {}
+
+message ServiceType {
+    string type = 1;
+}
+
+message ServiceTypesList {
+    repeated ServiceType types = 1;
+}
+
+/* RegistryResponse represents response from Registry service
+ * It contains status code and optional message
+ */
+message RegistryResponse {
+    enum Code {
+        OK = 0;
+        INVALID = 1;
+        FAIL = 2;
+        CANCELED = 3;
+        NOT_IMPLEMENTED = 4;
+        NULL = 5;
+        EXISTS = 6;
+    }
+
+    Code status = 1;
+    string message = 2;
+}
+
+message Service {
+    string type = 1;
+    string host = 2;
+    int32 port = 3;
+    repeated string business_routes = 4;
+    string health_route = 5;
+    string signature = 6;
+}
+
+message ServiceList {
+    repeated Service services = 1;
+}

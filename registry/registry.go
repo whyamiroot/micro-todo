@@ -1,58 +1,84 @@
-package registry
+package main
 
 import (
 	"fmt"
 	"github.com/whyamiroot/micro-todo/proto"
+	"github.com/whyamiroot/micro-todo/proto/utils"
 	"golang.org/x/net/context"
+	"strconv"
 	"sync"
 )
 
 type Registry struct {
-	Lock      sync.Mutex
+	lock      sync.Mutex
 	Instances map[string][]*proto.Service
 }
 
+func NewRegistry() *Registry {
+	reg := &Registry{Instances: make(map[string][]*proto.Service)}
+	return reg
+}
+
+//String returns string representation of service (without business routes and signature). Not synchronized
+func (r *Registry) String(serviceType string, index int) string {
+	instances := r.Instances[serviceType]
+	if len(instances) == 0 || index > len(instances) || instances[index] == nil {
+		return ""
+	}
+
+	return fmt.Sprintf("Service: %s, %s", instances[index].Type+strconv.Itoa(index), (utils.ServiceStringer(*instances[index])).String())
+}
+
+//ListServicesTypes lists all registered service types. E.g. `apigateway`, `auth` etc.
 func (r *Registry) ListServicesTypes(c context.Context, _ *proto.Empty) (*proto.ServiceTypesList, error) {
-	var types []*proto.ServiceType
+	res := make(chan []*proto.ServiceType)
 
 	go func() {
-		r.Lock.Lock()
-		defer r.Lock.Unlock()
+		var types []*proto.ServiceType
+		r.lock.Lock()
+		defer r.lock.Unlock()
 		for key := range r.Instances {
 			types = append(types, &proto.ServiceType{Type: key})
 		}
+		res <- types
 	}()
 
-	select {
-	case <-c.Done():
-		//TODO add logging to Logger
-		return nil, fmt.Errorf("CANCEL")
-	default:
+	for {
+		select {
+		case <-c.Done():
+			//TODO add logging to Logger
+			return nil, fmt.Errorf("CANCEL")
+		case types := <-res:
+			return &proto.ServiceTypesList{Types: types}, nil
+		default:
+		}
 	}
-
-	return &proto.ServiceTypesList{Types: types}, nil
 }
 
+//ListByType lists all service instances of specified type
 func (r *Registry) ListByType(c context.Context, st *proto.ServiceType) (*proto.ServiceList, error) {
 	if st == nil {
 		return nil, fmt.Errorf("NULL")
 	}
-	var services []*proto.Service
+
+	res := make(chan []*proto.Service)
 
 	go func() {
-		r.Lock.Lock()
-		defer r.Lock.Unlock()
-		services = r.Instances[st.Type]
+		r.lock.Lock()
+		defer r.lock.Unlock()
+		res <- r.Instances[st.Type]
 	}()
 
-	select {
-	case <-c.Done():
-		//TODO add logging to Logger
-		return nil, fmt.Errorf("CANCEL")
-	default:
+	for {
+		select {
+		case <-c.Done():
+			//TODO add logging to Logger
+			return nil, fmt.Errorf("CANCEL")
+		case services := <-res:
+			return &proto.ServiceList{Services: services}, nil
+		default:
+		}
 	}
-
-	return &proto.ServiceList{Services: services}, nil
 }
 
 func (r *Registry) BestInstance(c context.Context, st *proto.ServiceType) (*proto.Service, error) {
@@ -61,19 +87,48 @@ func (r *Registry) BestInstance(c context.Context, st *proto.ServiceType) (*prot
 
 func (r *Registry) Register(c context.Context, s *proto.Service) (*proto.RegistryResponse, error) {
 	if s == nil {
-		return nil, fmt.Errorf("NULL")
+		return &proto.RegistryResponse{Status: proto.RegistryResponse_NULL, Message: "No service received"}, nil
 	}
 
-	res := &proto.RegistryResponse{}
+	res := make(chan *proto.RegistryResponse)
 
 	go func() {
-		r.Lock.Lock()
-		defer r.Lock.Unlock()
+		r.lock.Lock()
+		defer r.lock.Unlock()
 
+		if b, err := r.exists(s); b {
+			if err != nil {
+				res <- &proto.RegistryResponse{Status: proto.RegistryResponse_NULL, Message: "No service received"}
+			} else {
+				res <- &proto.RegistryResponse{Status: proto.RegistryResponse_EXISTS, Message: "Service is already registered"}
+			}
+		}
+
+		if b, err := r.isValidSignature(s); !b {
+			if err != nil {
+				res <- &proto.RegistryResponse{Status: proto.RegistryResponse_NULL, Message: "No service received"}
+			} else {
+				res <- &proto.RegistryResponse{Status: proto.RegistryResponse_INVALID, Message: "Service signature is invalid"}
+			}
+		}
+
+		r.Instances[s.Type] = append(r.Instances[s.Type], s)
+		res <- &proto.RegistryResponse{Status: proto.RegistryResponse_OK, Message: "OK"}
 	}()
+
+	for {
+		select {
+		case <-c.Done():
+			//TODO add logging to Logger
+			return &proto.RegistryResponse{Status: proto.RegistryResponse_CANCELED, Message: "Registration canceled"}, nil
+		case response := <-res:
+			return response, nil
+		default:
+		}
+	}
 }
 
-func (r *Registry) exists(c context.Context, s *proto.Service) (bool, error) {
+func (r *Registry) exists(s *proto.Service) (bool, error) {
 	if s == nil {
 		return false, fmt.Errorf("NULL")
 	}
@@ -87,6 +142,7 @@ func (r *Registry) exists(c context.Context, s *proto.Service) (bool, error) {
 	return false, nil
 }
 
-func (r *Registry) isValidSignature(s *proto.Service) bool {
-	return true
+func (r *Registry) isValidSignature(s *proto.Service) (bool, error) {
+	//TODO implement
+	return true, nil
 }
