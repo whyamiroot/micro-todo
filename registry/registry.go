@@ -14,7 +14,7 @@ import (
 )
 
 type Registry struct {
-	lock      sync.Mutex
+	lock      *sync.Mutex
 	Instances map[string][]*proto.Service
 }
 
@@ -100,7 +100,7 @@ func (r *Registry) GetInstanceInfo(c context.Context, i *proto.InstanceInfo) (*p
 
 //NewRegistry returns new Registry instance
 func NewRegistry() *Registry {
-	reg := &Registry{Instances: make(map[string][]*proto.Service)}
+	reg := &Registry{Instances: make(map[string][]*proto.Service), lock: &sync.Mutex{}}
 	return reg
 }
 
@@ -201,7 +201,7 @@ func (r *Registry) Register(c context.Context, s *proto.Service) (*proto.Registr
 			return
 		}
 
-		healthURL := "http://" + s.Host + ":8080" + s.HealthRoute
+		healthURL := s.Proto + "://" + s.Host + ":" + strconv.Itoa(int(s.HttpPort)) + s.Health
 		resp, err := http.Get(healthURL)
 		if err != nil {
 			res <- &proto.RegistryResponse{Status: proto.RegistryResponse_NOT_IMPLEMENTED, Message: "Health check failed"}
@@ -244,7 +244,7 @@ func (r *Registry) exists(s *proto.Service) (bool, error) {
 	}
 
 	for _, v := range r.Instances[s.Type] {
-		// Comparing host:port + signature should be enough
+		// Comparing host, port and signature should be enough
 		if v.Host == s.Host && v.Port == s.Port && v.Signature == s.Signature {
 			return true, nil
 		}

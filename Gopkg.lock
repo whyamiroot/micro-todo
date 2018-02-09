@@ -46,12 +46,6 @@
 
 [[projects]]
   branch = "master"
-  name = "github.com/jasonlvhit/gocron"
-  packages = ["."]
-  revision = "3c914c8681c3998f1dd463d84a4d8c29345e47a4"
-
-[[projects]]
-  branch = "master"
   name = "golang.org/x/net"
   packages = [
     "context",
@@ -126,6 +120,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "b49e9588359661bb8caf200f4c6c00ce6d7e6cf8b23de1f596412f7c9240b559"
+  inputs-digest = "54e1162dc14ad6610bcc0ba2e7f1ca6b572ba9ea9cd85dc25038c28f4eb2b1b5"
   solver-name = "gps-cdcl"
   solver-version = 1

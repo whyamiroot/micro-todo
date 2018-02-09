@@ -14,7 +14,7 @@ import (
 func main() {
 	registry := NewRegistry()
 
-	lis, err := net.Listen("tcp", ":3000")
+	lis, err := net.Listen("tcp", ":3001")
 	if err != nil {
 		fmt.Printf("failed to listen: %v\n", err)
 		os.Exit(1)
@@ -32,6 +32,6 @@ func main() {
 	fmt.Println("Starting HTTP gateway...")
 	mux := runtime.NewServeMux()
 	opts := []grpc.DialOption{grpc.WithInsecure()}
-	proto.RegisterRegistryServiceHandlerFromEndpoint(ctx, mux, ":3000", opts)
+	proto.RegisterRegistryServiceHandlerFromEndpoint(ctx, mux, ":3001", opts)
 	http.ListenAndServe(":8080", mux)
 }

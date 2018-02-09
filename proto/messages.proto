@@ -32,12 +32,15 @@ message RegistryResponse {
 }
 
 message Service {
-    string type = 1;
-    string host = 2;
-    int32 port = 3;
-    repeated string business_routes = 4;
-    string health_route = 5;
-    string signature = 6;
+    string proto = 1;
+    string type = 2;
+    string host = 3;
+    int32 port = 4;
+    int32 httpPort = 5;
+    repeated string routes = 6;
+    string health = 7;
+    int32 weight = 8;
+    string signature = 9;
 }
 
 message ServiceList {
