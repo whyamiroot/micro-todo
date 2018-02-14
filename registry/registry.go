@@ -11,11 +11,71 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Registry struct {
 	lock      *sync.Mutex
 	Instances map[string][]*proto.Service
+}
+
+type DeadService struct {
+	ServiceType string
+	Index       int
+}
+
+func getHealth(service *proto.Service) *proto.Health {
+	healthURL := service.Proto + "://" + service.Host + ":" + strconv.Itoa(int(service.HttpPort)) + service.Health
+	resp, err := http.Get(healthURL)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	defer resp.Body.Close()
+	bytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil
+	}
+
+	health := &proto.Health{}
+	err = json.Unmarshal(bytes, health)
+	if err != nil {
+		return nil
+	}
+	return health
+}
+
+func sanitize() {
+
+}
+
+func (r *Registry) StartHealthChecks() {
+	corpsesChan := make(chan *DeadService)
+	var corpses []*DeadService
+	//read channel for dead services and append them to the dead services list
+	go func() {
+		for {
+			select {
+			case corpse := <-corpsesChan:
+				corpses = append(corpses, corpse)
+			default:
+			}
+		}
+	}()
+
+	//
+	for {
+		for sType := range r.Instances {
+			go func(serviceType string) {
+				for index, service := range r.Instances[serviceType] {
+					health := getHealth(service)
+					if health == nil || !health.Up {
+						corpsesChan <- &DeadService{ServiceType: serviceType, Index: index}
+					}
+				}
+			}(sType)
+		}
+		time.Sleep(3 * time.Minute) //TODO Move to the conf
+	}
 }
 
 func (r *Registry) GetHealth(context.Context, *proto.Empty) (*proto.Health, error) {
@@ -201,24 +261,9 @@ func (r *Registry) Register(c context.Context, s *proto.Service) (*proto.Registr
 			return
 		}
 
-		healthURL := s.Proto + "://" + s.Host + ":" + strconv.Itoa(int(s.HttpPort)) + s.Health
-		resp, err := http.Get(healthURL)
-		if err != nil {
+		health := getHealth(s)
+		if health == nil || !health.Up {
 			res <- &proto.RegistryResponse{Status: proto.RegistryResponse_NOT_IMPLEMENTED, Message: "Health check failed"}
-			return
-		}
-		defer resp.Body.Close()
-
-		bytes, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			res <- &proto.RegistryResponse{Status: proto.RegistryResponse_NOT_IMPLEMENTED, Message: "Health check failed"}
-			return
-		}
-
-		health := &proto.Health{}
-		err = json.Unmarshal(bytes, health)
-		if err != nil {
-			res <- &proto.RegistryResponse{Status: proto.RegistryResponse_FAIL, Message: "Health check failed"}
 			return
 		}
 

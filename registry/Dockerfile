@@ -7,8 +7,6 @@ RUN git clone https://github.com/google/protobuf.git && cd protobuf && git check
 
 FROM golang:1.9.2
 
-MAINTAINER Lev Sizov levsizov2015@outlook.com
-
 WORKDIR /go/src/github.com/whyamiroot/micro-todo
 
 RUN go get -u google.golang.org/grpc

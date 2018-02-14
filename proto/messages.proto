@@ -37,10 +37,11 @@ message Service {
     string host = 3;
     int32 port = 4;
     int32 httpPort = 5;
-    repeated string routes = 6;
-    string health = 7;
-    int32 weight = 8;
-    string signature = 9;
+    int32 httpsPort = 6;
+    repeated string routes = 7;
+    string health = 8;
+    int32 weight = 9;
+    string signature = 10;
 }
 
 message ServiceList {
