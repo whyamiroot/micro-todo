@@ -2,18 +2,28 @@
 
 Trying to write a TODO app with micro services architecture
 
+## Installation
+
+1. Install go-1.9
+2. Install Docker
+3. Install `dep` - [dep](github.com/golang/dep/cmd/dep)
+4. Install dependencies by running `dep ensure`
+5. Run `docker build -t micro-todo .` to build Docker image
+6. Start Docker container from built image
+    > By default, container runs `Registry` service. To specify which service to run, append `<service name>.bin` to the 
+    container running command. E.g. `docker run -d -p 127.0.0.1:30010:3000 -p 127.0.0.1:8080:80 micro-todo admin.bin`
+
 ## Project structure
 
 - `admin` - `Admin` service
 - `apigateway` - `APIGateway` service
 - `auth` - `Auth` service
-- `build` - builds output directory
 - `events` - `Events` service
 - `logger` - `Logger` service
+- `proto` - shared service RPC protocol and generated API gateways
 - `registry` - `Registry` service
 - `todo` - `TODO` service
 - `vendor` - project dependencies
-  > Use [dep](github.com/golang/dep/cmd/dep) to install dependencies
 
 ## Services
 
@@ -26,6 +36,11 @@ Trying to write a TODO app with micro services architecture
 5. `Admin` - **admin** - provides WEB UI for logs and status of all services
 6. `Logger` - **internal** - receives logs from all services and provides them to `Admin`
 7. `Events` - **internal** - sends and receives events for service syncing
+
+### Service API and configuration
+
+For information about service API and configuration see following files:
+- [Registry](registry/Registry.md)
 
 ### Communication process
 
@@ -70,14 +85,14 @@ Trying to write a TODO app with micro services architecture
 - `Registry`:
     - [x] Works on gRPC
     - [x] Works on HTTP
-    - [ ] Keeps up-to-date list by performing service instance health checks
-    - [x] Supports self-register requests
+    - [x] Keeps up-to-date list by performing service instance health checks
+    - [x] Supports server-side registering
     - [x] Responses with service types list
     - [x] Responses with service type instances list
     - [ ] Responses with address of suitable requested service (balancing)
+    - [ ] Supports several load balancing algorithms
     - [x] Has health HTTP endpoint
     - [x] Has health RPC method
-    - [ ] Proxies health check requests to service instances
     - [x] Responses with error message if service is unavailable
     - [ ] Restricts querying internal services for external clients
     - [ ] Restricts querying admin services for external clients

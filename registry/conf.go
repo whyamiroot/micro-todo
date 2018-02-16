@@ -61,7 +61,17 @@ type EnvironmentConfig struct {
 	Timeout uint16
 }
 
-func LoadConfigFromEnv() *EnvironmentConfig {
+var config *EnvironmentConfig
+
+//GetConfig loads configuration from environment variables, saves it and returns pointer to the configuration
+func GetConfig() *EnvironmentConfig {
+	if config == nil {
+		config = loadConfigFromEnv()
+	}
+	return config
+}
+
+func loadConfigFromEnv() *EnvironmentConfig {
 	env := &EnvironmentConfig{}
 	//Getting RPC port
 	rpcPort := os.Getenv(RegistryPrefix + "RPC_PORT")

@@ -10,14 +10,18 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"time"
 )
 
 func main() {
-	envConf := LoadConfigFromEnv()
+	envConf := GetConfig()
 	registry := NewRegistry()
+	registry.StartHealthChecks()
+	if envConf.RPCPort == 0 {
+		//TODO add logging to the logging service
+		panic("No RPC port is specified, unable to start")
+	}
 
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%D", envConf.RPCPort))
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", envConf.RPCPort))
 	if err != nil {
 		fmt.Printf("failed to listen: %v\n", err)
 		os.Exit(1)
@@ -25,6 +29,7 @@ func main() {
 
 	var opts []grpc.DialOption
 	var cred credentials.TransportCredentials
+
 	if !envConf.TLSEnabled {
 		opts = append(opts, grpc.WithInsecure())
 	} else {
@@ -36,19 +41,21 @@ func main() {
 	}
 
 	fmt.Println("Starting gRPC server...")
-	server := grpc.NewServer(grpc.Creds(cred))
+	var server *grpc.Server
+	if !envConf.TLSEnabled {
+		server = grpc.NewServer()
+	} else {
+		server = grpc.NewServer(grpc.Creds(cred))
+	}
 	proto.RegisterRegistryServiceServer(server, registry)
 	go server.Serve(lis)
 
 	mux := runtime.NewServeMux()
 
-	ctx := context.Background()
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(envConf.Timeout)*time.Second)
-	defer cancel()
-	proto.RegisterRegistryServiceHandlerFromEndpoint(ctx, mux, fmt.Sprintf(":%d", envConf.RPCPort), opts)
+	proto.RegisterRegistryServiceHandlerFromEndpoint(context.Background(), mux, fmt.Sprintf(":%d", envConf.RPCPort), opts)
 	var httpErr error
 	if envConf.TLSEnabled {
-		fmt.Println("Starting HTTPS gateway...")
+		fmt.Println("Starting HTTPS gateway...") //TODO add logging to the logging service
 		httpErr = http.ListenAndServeTLS(fmt.Sprintf(":%d", envConf.HTTPSPort), envConf.CertFile, envConf.KeyFile, mux)
 	} else {
 		fmt.Println("Starting HTTP gateway...")

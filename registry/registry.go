@@ -7,6 +7,7 @@ import (
 	"github.com/whyamiroot/micro-todo/proto/utils"
 	"golang.org/x/net/context"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -25,6 +26,7 @@ type DeadService struct {
 }
 
 func getHealth(service *proto.Service) *proto.Health {
+	//TODO use TLS if service has defined its HTTPS server
 	healthURL := service.Proto + "://" + service.Host + ":" + strconv.Itoa(int(service.HttpPort)) + service.Health
 	resp, err := http.Get(healthURL)
 	if err != nil || resp.StatusCode != http.StatusOK {
@@ -44,42 +46,111 @@ func getHealth(service *proto.Service) *proto.Health {
 	return health
 }
 
-func sanitize() {
+//NewRegistry returns new Registry instance
+func NewRegistry() *Registry {
+	reg := &Registry{Instances: make(map[string][]*proto.Service), lock: &sync.Mutex{}}
+	return reg
+}
 
+//String returns string representation of service (without business routes and signature). Not synchronized
+func (r *Registry) String(serviceType string, index int) string {
+	instances := r.Instances[serviceType]
+	if len(instances) == 0 || index > len(instances) || instances[index] == nil {
+		return ""
+	}
+
+	return fmt.Sprintf("Service: %s, %s", instances[index].Type+strconv.Itoa(index), (utils.ServiceStringer(*instances[index])).String())
+}
+
+func (r *Registry) sanitize(corpses []*DeadService) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	sanitizedRegistry := make(map[string][]*proto.Service) // contains slices of service slices without dead services for each service type
+	deletes := 0
+	var resulting []*proto.Service
+	var serviceList []*proto.Service
+	for _, deadService := range corpses {
+		serviceList = r.Instances[deadService.ServiceType]
+		if len(serviceList) == 0 || deadService.Index >= len(serviceList) {
+			continue
+		}
+
+		if deadService.Index == 0 {
+			sanitizedRegistry[deadService.ServiceType] = serviceList[1:]
+		} else {
+			resulting = serviceList[:deadService.Index-deletes]
+			resulting = append(resulting, serviceList[deadService.Index-deletes+1:]...)
+			sanitizedRegistry[deadService.ServiceType] = resulting
+		}
+		deletes++
+	}
+	r.Instances = sanitizedRegistry
 }
 
 func (r *Registry) StartHealthChecks() {
-	corpsesChan := make(chan *DeadService)
-	var corpses []*DeadService
-	//read channel for dead services and append them to the dead services list
 	go func() {
-		for {
-			select {
-			case corpse := <-corpsesChan:
-				corpses = append(corpses, corpse)
-			default:
+		corpsesChan := make(chan *DeadService)
+		var corpses []*DeadService
+		//read channel for dead services and append them to the dead services list
+		go func() {
+			for {
+				select {
+				case corpse := <-corpsesChan:
+					corpses = append(corpses, corpse)
+				default:
+				}
 			}
+		}()
+
+		//start goroutine for every service type; each goroutine checks health of all services and then sleeps for some time
+		for {
+			//TODO add logging to the logging service
+			fmt.Println("Performing service health check...")
+			for sType := range r.Instances {
+				go func(serviceType string) {
+					for index, service := range r.Instances[serviceType] {
+						health := getHealth(service)
+						if health == nil || !health.Up {
+							corpsesChan <- &DeadService{ServiceType: serviceType, Index: index}
+						}
+					}
+				}(sType)
+			}
+			time.Sleep(3 * time.Minute) //TODO Move to the conf
+			r.sanitize(corpses)
 		}
 	}()
-
-	//
-	for {
-		for sType := range r.Instances {
-			go func(serviceType string) {
-				for index, service := range r.Instances[serviceType] {
-					health := getHealth(service)
-					if health == nil || !health.Up {
-						corpsesChan <- &DeadService{ServiceType: serviceType, Index: index}
-					}
-				}
-			}(sType)
-		}
-		time.Sleep(3 * time.Minute) //TODO Move to the conf
-	}
 }
 
+//GetHealth returns health status of the Registry service. Good health requires running RPC and HTTP or HTTPS server
 func (r *Registry) GetHealth(context.Context, *proto.Empty) (*proto.Health, error) {
-	return &proto.Health{Up: true}, nil
+	//check if RPC port and HTTP or HTTPS port are listened, which means that server is running
+	isRPCUp := false
+	config = GetConfig()
+	_, err := net.Listen("tcp", ":"+fmt.Sprintf(":%d", config.RPCPort))
+	if err != nil {
+		isRPCUp = true
+	}
+
+	isHTTPUp := false
+	if config.HTTPPort != 0 {
+		_, err := net.Listen("tcp", ":"+fmt.Sprintf(":%d", config.HTTPPort))
+		if err != nil {
+			isHTTPUp = true
+		}
+	} else if config.HTTPSPort != 0 {
+		_, err := net.Listen("tcp", ":"+fmt.Sprintf(":%d", config.HTTPSPort))
+		if err != nil {
+			isHTTPUp = true
+		}
+	}
+
+	if isRPCUp && isHTTPUp {
+		return &proto.Health{Up: true}, nil
+	}
+
+	return &proto.Health{Up: false}, nil
 }
 
 //GetInfo returns service instance information
@@ -156,22 +227,6 @@ func (r *Registry) GetInstanceInfo(c context.Context, i *proto.InstanceInfo) (*p
 		default:
 		}
 	}
-}
-
-//NewRegistry returns new Registry instance
-func NewRegistry() *Registry {
-	reg := &Registry{Instances: make(map[string][]*proto.Service), lock: &sync.Mutex{}}
-	return reg
-}
-
-//String returns string representation of service (without business routes and signature). Not synchronized
-func (r *Registry) String(serviceType string, index int) string {
-	instances := r.Instances[serviceType]
-	if len(instances) == 0 || index > len(instances) || instances[index] == nil {
-		return ""
-	}
-
-	return fmt.Sprintf("Service: %s, %s", instances[index].Type+strconv.Itoa(index), (utils.ServiceStringer(*instances[index])).String())
 }
 
 //ListServicesTypes lists all registered service types. E.g. `apigateway`, `auth` etc.
@@ -289,8 +344,8 @@ func (r *Registry) exists(s *proto.Service) (bool, error) {
 	}
 
 	for _, v := range r.Instances[s.Type] {
-		// Comparing host, port and signature should be enough
-		if v.Host == s.Host && v.Port == s.Port && v.Signature == s.Signature {
+		// Comparing signatures should be enough
+		if v.Signature == s.Signature {
 			return true, nil
 		}
 	}

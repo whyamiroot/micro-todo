@@ -15,7 +15,7 @@ service RegistryService {
 
     rpc Register(Service) returns (RegistryResponse) {
         option (google.api.http) = {
-            post: "/registry/service/register"
+            post: "/registry/service"
             body: "*"
         };
     }

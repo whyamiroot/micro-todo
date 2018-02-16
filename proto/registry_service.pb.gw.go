@@ -425,7 +425,7 @@ func RegisterRegistryServiceHandlerClient(ctx context.Context, mux *runtime.Serv
 var (
 	pattern_RegistryService_GetHealth_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"registry", "health"}, ""))
 
-	pattern_RegistryService_Register_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"registry", "service", "register"}, ""))
+	pattern_RegistryService_Register_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"registry", "service"}, ""))
 
 	pattern_RegistryService_ListServicesTypes_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"registry", "service", "types"}, ""))
 
