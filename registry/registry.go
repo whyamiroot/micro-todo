@@ -3,89 +3,111 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/whyamiroot/micro-todo/proto"
 	"github.com/whyamiroot/micro-todo/proto/utils"
 	"golang.org/x/net/context"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"io/ioutil"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
+//BalancerFunc is a pointer to the load balancing function, which should return service type and service instance index
+type BalancerFunc func() *proto.Service
+
+//Registry is a service registry which holds list of service instances by its type
 type Registry struct {
-	lock      *sync.Mutex
-	Instances map[string][]*proto.Service
+	Lock          *sync.Mutex
+	Instances     map[string][]*proto.Service
+	BalancerFunc  BalancerFunc
+	BalancerState map[string]int
 }
 
+//DeadService is a data structure which defines dead service instance which should be removed from registry
 type DeadService struct {
 	ServiceType string
 	Index       int
 }
 
-func getHealth(service *proto.Service) *proto.Health {
-	//TODO use TLS if service has defined its HTTPS server
-	healthURL := service.Proto + "://" + service.Host + ":" + strconv.Itoa(int(service.HttpPort)) + service.Health
-	resp, err := http.Get(healthURL)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return nil
-	}
-	defer resp.Body.Close()
-	bytes, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil
-	}
-
-	health := &proto.Health{}
-	err = json.Unmarshal(bytes, health)
-	if err != nil {
-		return nil
-	}
-	return health
-}
-
 //NewRegistry returns new Registry instance
 func NewRegistry() *Registry {
-	reg := &Registry{Instances: make(map[string][]*proto.Service), lock: &sync.Mutex{}}
+	reg := &Registry{Instances: make(map[string][]*proto.Service), Lock: &sync.Mutex{}}
 	return reg
 }
 
-//String returns string representation of service (without business routes and signature). Not synchronized
-func (r *Registry) String(serviceType string, index int) string {
-	instances := r.Instances[serviceType]
-	if len(instances) == 0 || index > len(instances) || instances[index] == nil {
-		return ""
+//StartRegistryServiceAndListen starts gRPC and HTTP servers for Registry service
+func (r *Registry) StartRegistryServiceAndListen() {
+	r.StartHealthChecks()
+	envConf := GetConfig()
+
+	switch envConf.BalancerType {
+	case BalanceRandom:
+		r.BalancerFunc = r.RandomBalancerFunc
+	case BalanceRoundRobin:
+		r.BalancerFunc = r.RoundRobinBalancerFunc
+	case BalanceWeightedRandom:
+		r.BalancerFunc = r.WeightedRandomBalancerFunc
+	case BalanceWeightedRoundRobin:
+		r.BalancerFunc = r.WeightedRoundRobinBalancerFunc
+	default:
+		r.BalancerFunc = r.WeightedRoundRobinBalancerFunc
 	}
 
-	return fmt.Sprintf("Service: %s, %s", instances[index].Type+strconv.Itoa(index), (utils.ServiceStringer(*instances[index])).String())
-}
-
-func (r *Registry) sanitize(corpses []*DeadService) {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-
-	sanitizedRegistry := make(map[string][]*proto.Service) // contains slices of service slices without dead services for each service type
-	deletes := 0
-	var resulting []*proto.Service
-	var serviceList []*proto.Service
-	for _, deadService := range corpses {
-		serviceList = r.Instances[deadService.ServiceType]
-		if len(serviceList) == 0 || deadService.Index >= len(serviceList) {
-			continue
-		}
-
-		if deadService.Index == 0 {
-			sanitizedRegistry[deadService.ServiceType] = serviceList[1:]
-		} else {
-			resulting = serviceList[:deadService.Index-deletes]
-			resulting = append(resulting, serviceList[deadService.Index-deletes+1:]...)
-			sanitizedRegistry[deadService.ServiceType] = resulting
-		}
-		deletes++
+	if envConf.RPCPort == 0 {
+		//TODO add logging to the logging service
+		panic("No RPC port is specified, unable to start")
 	}
-	r.Instances = sanitizedRegistry
+
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", envConf.RPCPort))
+	if err != nil {
+		fmt.Printf("failed to listen: %v\n", err)
+		os.Exit(1)
+	}
+
+	var opts []grpc.DialOption
+	var cred credentials.TransportCredentials
+
+	if !envConf.TLSEnabled {
+		opts = append(opts, grpc.WithInsecure())
+	} else {
+		cred, err := credentials.NewServerTLSFromFile(envConf.CertFile, envConf.KeyFile)
+		if err != nil {
+			fmt.Println("Failed to load TLS credentials")
+		}
+		opts = append(opts, grpc.WithTransportCredentials(cred))
+	}
+
+	fmt.Println("Starting gRPC server...")
+	var server *grpc.Server
+	if !envConf.TLSEnabled {
+		server = grpc.NewServer()
+	} else {
+		server = grpc.NewServer(grpc.Creds(cred))
+	}
+	proto.RegisterRegistryServiceServer(server, r)
+	go server.Serve(lis)
+
+	mux := runtime.NewServeMux()
+
+	proto.RegisterRegistryServiceHandlerFromEndpoint(context.Background(), mux, fmt.Sprintf(":%d", envConf.RPCPort), opts)
+	var httpErr error
+	if envConf.TLSEnabled {
+		fmt.Println("Starting HTTPS gateway...") //TODO add logging to the logging service
+		httpErr = http.ListenAndServeTLS(fmt.Sprintf(":%d", envConf.HTTPSPort), envConf.CertFile, envConf.KeyFile, mux)
+	} else {
+		fmt.Println("Starting HTTP gateway...")
+		httpErr = http.ListenAndServe(fmt.Sprintf(":%d", envConf.HTTPPort), mux)
+	}
+	if httpErr != nil {
+		panic(httpErr.Error())
+	}
 }
 
 func (r *Registry) StartHealthChecks() {
@@ -124,6 +146,10 @@ func (r *Registry) StartHealthChecks() {
 }
 
 //GetHealth returns health status of the Registry service. Good health requires running RPC and HTTP or HTTPS server
+//
+//Method: GET
+//
+//Resource: /registry/health
 func (r *Registry) GetHealth(context.Context, *proto.Empty) (*proto.Health, error) {
 	//check if RPC port and HTTP or HTTPS port are listened, which means that server is running
 	isRPCUp := false
@@ -146,14 +172,14 @@ func (r *Registry) GetHealth(context.Context, *proto.Empty) (*proto.Health, erro
 		}
 	}
 
-	if isRPCUp && isHTTPUp {
-		return &proto.Health{Up: true}, nil
-	}
-
-	return &proto.Health{Up: false}, nil
+	return &proto.Health{Up: isRPCUp && isHTTPUp}, nil
 }
 
 //GetInfo returns service instance information
+//
+//Method: GET
+//
+//Resource: /registry/service/types/{type}/{index}
 func (r *Registry) GetInfo(c context.Context, si *proto.ServiceInfo) (*proto.Service, error) {
 	if si == nil {
 		return nil, fmt.Errorf("NULL")
@@ -161,8 +187,8 @@ func (r *Registry) GetInfo(c context.Context, si *proto.ServiceInfo) (*proto.Ser
 	res := make(chan *proto.Service)
 
 	go func() {
-		r.lock.Lock()
-		defer r.lock.Unlock()
+		r.Lock.Lock()
+		defer r.Lock.Unlock()
 		if l := len(r.Instances[si.Type]); l != 0 && int(si.Index) < l && r.Instances[si.Type][si.Index] != nil {
 			res <- r.Instances[si.Type][si.Index]
 		} else {
@@ -187,6 +213,10 @@ func (r *Registry) GetInfo(c context.Context, si *proto.ServiceInfo) (*proto.Ser
 }
 
 //GetInstanceInfo returns service instance information. Instance is specified in a following format - `type-index`
+//
+//Method: GET
+//
+//Resource: /registry/service/{instanceName}
 func (r *Registry) GetInstanceInfo(c context.Context, i *proto.InstanceInfo) (*proto.Service, error) {
 	if i == nil {
 		return nil, fmt.Errorf("NULL")
@@ -204,8 +234,8 @@ func (r *Registry) GetInstanceInfo(c context.Context, i *proto.InstanceInfo) (*p
 
 	res := make(chan *proto.Service)
 	go func() {
-		r.lock.Lock()
-		defer r.lock.Unlock()
+		r.Lock.Lock()
+		defer r.Lock.Unlock()
 		if l := len(r.Instances[serviceType]); l != 0 && int(index) < l && r.Instances[serviceType][index] != nil {
 			res <- r.Instances[serviceType][index]
 		} else {
@@ -230,13 +260,17 @@ func (r *Registry) GetInstanceInfo(c context.Context, i *proto.InstanceInfo) (*p
 }
 
 //ListServicesTypes lists all registered service types. E.g. `apigateway`, `auth` etc.
+//
+//Method: GET
+//
+//Resource: /registry/service/types
 func (r *Registry) ListServicesTypes(c context.Context, _ *proto.Empty) (*proto.ServiceTypesList, error) {
 	res := make(chan []*proto.ServiceType)
 
 	go func() {
 		var types []*proto.ServiceType
-		r.lock.Lock()
-		defer r.lock.Unlock()
+		r.Lock.Lock()
+		defer r.Lock.Unlock()
 		for key := range r.Instances {
 			types = append(types, &proto.ServiceType{Type: key})
 		}
@@ -257,6 +291,10 @@ func (r *Registry) ListServicesTypes(c context.Context, _ *proto.Empty) (*proto.
 }
 
 //ListByType lists all service instances of specified type
+//
+//Method: GET
+//
+//Resource: /registry/service/types/{type}
 func (r *Registry) ListByType(c context.Context, st *proto.ServiceType) (*proto.ServiceList, error) {
 	if st == nil {
 		return nil, fmt.Errorf("NULL")
@@ -265,8 +303,8 @@ func (r *Registry) ListByType(c context.Context, st *proto.ServiceType) (*proto.
 	res := make(chan []*proto.Service)
 
 	go func() {
-		r.lock.Lock()
-		defer r.lock.Unlock()
+		r.Lock.Lock()
+		defer r.Lock.Unlock()
 		res <- r.Instances[st.Type]
 		return
 	}()
@@ -283,10 +321,21 @@ func (r *Registry) ListByType(c context.Context, st *proto.ServiceType) (*proto.
 	}
 }
 
+//BestInstance returns best instance of required service type according to the load balancer
+//
+//Method: GET
+//
+//Resource: /registry/service/types/{type}/best
 func (r *Registry) BestInstance(c context.Context, st *proto.ServiceType) (*proto.Service, error) {
 	panic("implement me")
 }
 
+//Register registers new service instance in the registry, making this instance available for serving requests and participating in the
+//load balancing
+//
+//Method: POST
+//
+//Resource: /registry/service
 func (r *Registry) Register(c context.Context, s *proto.Service) (*proto.RegistryResponse, error) {
 	if s == nil {
 		return &proto.RegistryResponse{Status: proto.RegistryResponse_NULL, Message: "No service received"}, nil
@@ -295,8 +344,8 @@ func (r *Registry) Register(c context.Context, s *proto.Service) (*proto.Registr
 	res := make(chan *proto.RegistryResponse)
 
 	go func() {
-		r.lock.Lock()
-		defer r.lock.Unlock()
+		r.Lock.Lock()
+		defer r.Lock.Unlock()
 
 		if b, err := r.exists(s); b {
 			if err != nil {
@@ -338,6 +387,65 @@ func (r *Registry) Register(c context.Context, s *proto.Service) (*proto.Registr
 	}
 }
 
+//String returns string representation of service (without business routes and signature). Not synchronized
+func (r *Registry) String(serviceType string, index int) string {
+	instances := r.Instances[serviceType]
+	if len(instances) == 0 || index > len(instances) || instances[index] == nil {
+		return ""
+	}
+
+	return fmt.Sprintf("Service: %s, %s", instances[index].Type+strconv.Itoa(index), (utils.ServiceStringer(*instances[index])).String())
+}
+
+func getHealth(service *proto.Service) *proto.Health {
+	//TODO use TLS if service has defined its HTTPS server
+	healthURL := service.Proto + "://" + service.Host + ":" + strconv.Itoa(int(service.HttpPort)) + service.Health
+	resp, err := http.Get(healthURL)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	defer resp.Body.Close()
+	bytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil
+	}
+
+	health := &proto.Health{}
+	err = json.Unmarshal(bytes, health)
+	if err != nil {
+		return nil
+	}
+	return health
+}
+
+func (r *Registry) sanitize(corpses []*DeadService) {
+	r.Lock.Lock()
+	defer r.Lock.Unlock()
+
+	sanitizedRegistry := make(map[string][]*proto.Service) // contains slices of service slices without dead services for each service type
+	deletes := 0
+	var resulting []*proto.Service
+	var serviceList []*proto.Service
+	for _, deadService := range corpses {
+		serviceList = r.Instances[deadService.ServiceType]
+		if len(serviceList) == 0 || deadService.Index >= len(serviceList) {
+			continue
+		}
+
+		if deadService.Index == 0 {
+			sanitizedRegistry[deadService.ServiceType] = serviceList[1:]
+		} else {
+			resulting = serviceList[:deadService.Index-deletes]
+			resulting = append(resulting, serviceList[deadService.Index-deletes+1:]...)
+			sanitizedRegistry[deadService.ServiceType] = resulting
+		}
+		deletes++
+	}
+	r.Lock.Lock()
+	r.Instances = sanitizedRegistry
+	r.Lock.Unlock()
+}
+
 func (r *Registry) exists(s *proto.Service) (bool, error) {
 	if s == nil {
 		return false, fmt.Errorf("NULL")
@@ -355,4 +463,28 @@ func (r *Registry) exists(s *proto.Service) (bool, error) {
 func (r *Registry) isValidSignature(s *proto.Service) (bool, error) {
 	//TODO implement
 	return true, nil
+}
+
+func (r *Registry) RandomBalancerFunc() *proto.Service {
+	var service *proto.Service
+	panic("implements me") //TODO Implement
+	return service
+}
+
+func (r *Registry) RoundRobinBalancerFunc() *proto.Service {
+	var service *proto.Service
+	panic("implements me") //TODO Implement
+	return service
+}
+
+func (r *Registry) WeightedRandomBalancerFunc() *proto.Service {
+	var service *proto.Service
+	panic("implements me") //TODO Implement
+	return service
+}
+
+func (r *Registry) WeightedRoundRobinBalancerFunc() *proto.Service {
+	var service *proto.Service
+	panic("implements me") //TODO Implement
+	return service
 }

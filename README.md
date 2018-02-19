@@ -44,15 +44,12 @@ For information about service API and configuration see following files:
 
 ### Communication process
 
-#### Clients's communication with `Auth` and `TODO` through `APIGateway`
+#### Clients's communication with `Auth` and `TODO` through `Registry`
 
 0. Services register themselves in `Registry`
-1. Client performs request to the `Registry` to find the `APIGateway`
-2. `Registry` finds suitable `APIGateway` instances and responses with address
-3. Client performs request to the `APIGateway`
-4. `APIGateway` queries `Registry` for a suitable service instance
-5. `APIGateway` proxies request to the instance, converting request to internal protocol, and waits for response
-6. On receiving response, `APIGateway` converts response from internal protocol to HTTP response and sends back to client
+1. Client performs request to the `Registry` to specific service and its API endpoint
+2. `Registry` proxies request to the best instance, converting request to internal protocol, and waits for response
+3. On receiving response, `Registry` converts response from internal protocol to HTTP response and sends back to client
 
 #### `Auth` and `TODO` services' communication with `Events` service
 
@@ -62,7 +59,7 @@ For information about service API and configuration see following files:
     > For example - `todo` task with id `id` changed from `value` to `value`
 3. `Events` service sends sync command to all subscribers
 
-#### `Registry`, `Auth`, `TODO`, `Events`, `APIGateway` services' communication with `Logger` service
+#### `Registry`, `Auth`, `TODO`, `Events` services' communication with `Logger` service
 
 0. Service queries `Registry` for `Logger` service
 1. Service sends log message to `Logger` service
@@ -74,12 +71,6 @@ For information about service API and configuration see following files:
 2. `Admin` updates log every `n` seconds
 3. `Admin` queries `Registry` for services status  
 
-#### `APIGateway` service's communication with `Auth` 
-
-0. Service queries `Registry` for the suitable `Auth` service
-1. Service authorizes user by querying `Auth` service
-2. Service authenticates some action by querying `Auth` service
-
 ### Features
 
 - `Registry`:
@@ -90,12 +81,16 @@ For information about service API and configuration see following files:
     - [x] Responses with service types list
     - [x] Responses with service type instances list
     - [ ] Responses with address of suitable requested service (balancing)
-    - [ ] Supports several load balancing algorithms
+    - [ ] Supports several load balancing algorithms:
+        - [ ] Random balancer
+        - [ ] Round-robin balancer
+        - [ ] Weighted random balancer
+        - [ ] Weighted round-robin balancer
     - [x] Has health HTTP endpoint
     - [x] Has health RPC method
     - [x] Responses with error message if service is unavailable
-    - [ ] Restricts querying internal services for external clients
-    - [ ] Restricts querying admin services for external clients
+    - [ ] Restricts querying internal services from external clients
+    - [ ] Restricts querying admin services from external clients
     - [ ] Writes logs to `Logger`
 - `APIGateway`:
     - [ ] Proxies HTTP request to a corresponding instance, converting from HTTP to internal protocol
