@@ -10,6 +10,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"io/ioutil"
+	"math"
+	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -20,14 +22,16 @@ import (
 )
 
 //BalancerFunc is a pointer to the load balancing function, which should return service type and service instance index
-type BalancerFunc func() *proto.Service
+type BalancerFunc func(serviceType *proto.ServiceType) *proto.Service
 
 //Registry is a service registry which holds list of service instances by its type
 type Registry struct {
-	Lock          *sync.Mutex
-	Instances     map[string][]*proto.Service
-	BalancerFunc  BalancerFunc
-	BalancerState map[string]int
+	Lock         *sync.Mutex
+	Instances    map[string][]*proto.Service
+	BalancerFunc BalancerFunc
+
+	lastRRBalancingResult map[string]int32
+	collectiveWeights     map[string]int32
 }
 
 //DeadService is a data structure which defines dead service instance which should be removed from registry
@@ -372,6 +376,7 @@ func (r *Registry) Register(c context.Context, s *proto.Service) (*proto.Registr
 		}
 
 		r.Instances[s.Type] = append(r.Instances[s.Type], s)
+		r.collectiveWeights[s.Type] += s.Weight // add service weight to service type collective weight
 		res <- &proto.RegistryResponse{Status: proto.RegistryResponse_OK, Message: "OK"}
 	}()
 
@@ -435,11 +440,14 @@ func (r *Registry) sanitize(corpses []*DeadService) {
 		if deadService.Index == 0 {
 			sanitizedRegistry[deadService.ServiceType] = serviceList[1:]
 		} else {
+			//cut dead service from instance list
 			resulting = serviceList[:deadService.Index-deletes]
 			resulting = append(resulting, serviceList[deadService.Index-deletes+1:]...)
 			sanitizedRegistry[deadService.ServiceType] = resulting
 		}
 		deletes++
+		//decrease collective weight of dead service type instances
+		r.collectiveWeights[deadService.ServiceType] -= serviceList[deadService.Index].Weight
 	}
 	r.Lock.Lock()
 	r.Instances = sanitizedRegistry
@@ -465,26 +473,80 @@ func (r *Registry) isValidSignature(s *proto.Service) (bool, error) {
 	return true, nil
 }
 
-func (r *Registry) RandomBalancerFunc() *proto.Service {
-	var service *proto.Service
-	panic("implements me") //TODO Implement
-	return service
+//RandomBalancerFunc returns random service from a list of service type services
+func (r *Registry) RandomBalancerFunc(serviceType *proto.ServiceType) *proto.Service {
+	if serviceType == nil {
+		return nil
+	}
+
+	r.Lock.Lock()
+	defer r.Lock.Unlock()
+
+	instances := r.Instances[serviceType.Type]
+	if len(instances) == 0 {
+		return nil
+	} else if len(instances) == 1 {
+		return instances[0]
+	}
+
+	instanceIndex := rand.Intn(len(instances))
+
+	return instances[instanceIndex]
 }
 
-func (r *Registry) RoundRobinBalancerFunc() *proto.Service {
-	var service *proto.Service
-	panic("implements me") //TODO Implement
-	return service
+func (r *Registry) RoundRobinBalancerFunc(serviceType *proto.ServiceType) *proto.Service {
+	if serviceType == nil {
+		return nil
+	}
+
+	r.Lock.Lock()
+	defer r.Lock.Unlock()
+
+	instances := r.Instances[serviceType.Type]
+	lastIndex := r.lastRRBalancingResult[serviceType.Type]
+
+	if len(instances) == 0 {
+		return nil
+	} else if len(instances) == 1 {
+		r.lastRRBalancingResult[serviceType.Type] = 0
+		return instances[0]
+	}
+
+	// first balancing op or last balancing op returned last instance in the list
+	if lastIndex == math.MinInt32 || lastIndex+1 >= int32(len(instances)) {
+		r.lastRRBalancingResult[serviceType.Type] = 0
+		return instances[0]
+	}
+
+	r.lastRRBalancingResult[serviceType.Type] = lastIndex + 1
+	return instances[lastIndex+1]
 }
 
-func (r *Registry) WeightedRandomBalancerFunc() *proto.Service {
-	var service *proto.Service
-	panic("implements me") //TODO Implement
-	return service
+//WeightedRandomBalancerFunc returns random service from a list of service type services
+func (r *Registry) WeightedRandomBalancerFunc(serviceType *proto.ServiceType) *proto.Service {
+	if serviceType == nil {
+		return nil
+	}
+
+	instances := r.Instances[serviceType.Type]
+	if len(instances) == 0 {
+		return nil
+	} else if len(instances) == 1 {
+		return instances[0]
+	}
+
+	randVal := rand.Int31n(r.collectiveWeights[serviceType.Type])
+
+	for _, instance := range instances {
+		randVal -= instance.Weight
+		if randVal <= 0 {
+			return instance
+		}
+	}
+
+	return nil
 }
 
-func (r *Registry) WeightedRoundRobinBalancerFunc() *proto.Service {
-	var service *proto.Service
-	panic("implements me") //TODO Implement
-	return service
+func (r *Registry) WeightedRoundRobinBalancerFunc(serviceType *proto.ServiceType) *proto.Service {
+
 }
