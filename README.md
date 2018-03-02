@@ -80,12 +80,12 @@ For information about service API and configuration see following files:
     - [x] Supports server-side registering
     - [x] Responses with service types list
     - [x] Responses with service type instances list
-    - [ ] Responses with address of suitable requested service (balancing)
-    - [ ] Supports several load balancing algorithms:
-        - [ ] Random balancer
-        - [ ] Round-robin balancer
-        - [ ] Weighted random balancer
-        - [ ] Weighted round-robin balancer
+    - [x] Responses with address of suitable requested service (balancing)
+    - [x] Supports several load balancing algorithms:
+        - [x] Random balancer
+        - [x] Round-robin balancer
+        - [x] Weighted random balancer
+        - [x] Weighted round-robin balancer
     - [x] Has health HTTP endpoint
     - [x] Has health RPC method
     - [x] Responses with error message if service is unavailable
