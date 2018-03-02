@@ -3,14 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/grpc-ecosystem/grpc-gateway/runtime"
-	"github.com/whyamiroot/micro-todo/proto"
-	"github.com/whyamiroot/micro-todo/proto/utils"
-	"golang.org/x/net/context"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"io/ioutil"
-	"math"
 	"math/rand"
 	"net"
 	"net/http"
@@ -19,19 +12,49 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/whyamiroot/micro-todo/proto"
+	"github.com/whyamiroot/micro-todo/proto/utils"
+	"golang.org/x/net/context"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
-//BalancerFunc is a pointer to the load balancing function, which should return service type and service instance index
+//balancerFunc is a pointer to the load balancing function, which should return service type and service instance index
 type BalancerFunc func(serviceType *proto.ServiceType) *proto.Service
+
+//ServiceWeightInfo is a helper data structure for keeping information about weights
+type ServiceWeightInfo struct {
+
+	//CollectiveWeights is map of weight sums, where key is the service type and value is a sum of weights of all
+	//instances of this service type
+	CollectiveWeights map[string]int32
+
+	//MaxWeight is a map of maximum weights, where key is the service type and value is the biggest weight of all
+	//instances of this service type
+	MaxWeight map[string]int32
+
+	//GCD is a map of greatest common divisor for all weights, where key is the service type and value is the greatest
+	//common divisor for all weights of instances of this service type
+	GCD map[string]int32
+}
+
+//LastWRRState saves state of the last round of Weighted Round Robin balancing algorithm
+type LastWRRState struct {
+	Index  int32
+	Weight int32
+}
 
 //Registry is a service registry which holds list of service instances by its type
 type Registry struct {
-	Lock         *sync.Mutex
-	Instances    map[string][]*proto.Service
-	BalancerFunc BalancerFunc
+	Instances map[string][]*proto.Service
 
-	lastRRBalancingResult map[string]int32
-	collectiveWeights     map[string]int32
+	balancerFunc BalancerFunc
+	lock         *sync.Mutex
+	lastRR       map[string]*LastWRRState
+	weightInfo   *ServiceWeightInfo
+	rnd          *rand.Rand
 }
 
 //DeadService is a data structure which defines dead service instance which should be removed from registry
@@ -42,7 +65,17 @@ type DeadService struct {
 
 //NewRegistry returns new Registry instance
 func NewRegistry() *Registry {
-	reg := &Registry{Instances: make(map[string][]*proto.Service), Lock: &sync.Mutex{}}
+	reg := &Registry{
+		Instances: make(map[string][]*proto.Service),
+		lock:      &sync.Mutex{},
+		lastRR:    make(map[string]*LastWRRState),
+		rnd:       rand.New(rand.NewSource(time.Now().UnixNano())),
+		weightInfo: &ServiceWeightInfo{
+			CollectiveWeights: make(map[string]int32),
+			GCD:               make(map[string]int32),
+			MaxWeight:         make(map[string]int32),
+		},
+	}
 	return reg
 }
 
@@ -53,15 +86,15 @@ func (r *Registry) StartRegistryServiceAndListen() {
 
 	switch envConf.BalancerType {
 	case BalanceRandom:
-		r.BalancerFunc = r.RandomBalancerFunc
+		r.balancerFunc = r.RandomBalancerFunc
 	case BalanceRoundRobin:
-		r.BalancerFunc = r.RoundRobinBalancerFunc
+		r.balancerFunc = r.RoundRobinBalancerFunc
 	case BalanceWeightedRandom:
-		r.BalancerFunc = r.WeightedRandomBalancerFunc
+		r.balancerFunc = r.WeightedRandomBalancerFunc
 	case BalanceWeightedRoundRobin:
-		r.BalancerFunc = r.WeightedRoundRobinBalancerFunc
+		r.balancerFunc = r.WeightedRoundRobinBalancerFunc
 	default:
-		r.BalancerFunc = r.WeightedRoundRobinBalancerFunc
+		r.balancerFunc = r.WeightedRoundRobinBalancerFunc
 	}
 
 	if envConf.RPCPort == 0 {
@@ -144,7 +177,7 @@ func (r *Registry) StartHealthChecks() {
 				}(sType)
 			}
 			time.Sleep(3 * time.Minute) //TODO Move to the conf
-			r.sanitize(corpses)
+			r.Sanitize(corpses)
 		}
 	}()
 }
@@ -191,9 +224,9 @@ func (r *Registry) GetInfo(c context.Context, si *proto.ServiceInfo) (*proto.Ser
 	res := make(chan *proto.Service)
 
 	go func() {
-		r.Lock.Lock()
-		defer r.Lock.Unlock()
-		if l := len(r.Instances[si.Type]); l != 0 && int(si.Index) < l && r.Instances[si.Type][si.Index] != nil {
+		r.lock.Lock()
+		defer r.lock.Unlock()
+		if length := len(r.Instances[si.Type]); length != 0 && int(si.Index) < length && r.Instances[si.Type][si.Index] != nil {
 			res <- r.Instances[si.Type][si.Index]
 		} else {
 			res <- nil
@@ -238,8 +271,8 @@ func (r *Registry) GetInstanceInfo(c context.Context, i *proto.InstanceInfo) (*p
 
 	res := make(chan *proto.Service)
 	go func() {
-		r.Lock.Lock()
-		defer r.Lock.Unlock()
+		r.lock.Lock()
+		defer r.lock.Unlock()
 		if l := len(r.Instances[serviceType]); l != 0 && int(index) < l && r.Instances[serviceType][index] != nil {
 			res <- r.Instances[serviceType][index]
 		} else {
@@ -273,8 +306,8 @@ func (r *Registry) ListServicesTypes(c context.Context, _ *proto.Empty) (*proto.
 
 	go func() {
 		var types []*proto.ServiceType
-		r.Lock.Lock()
-		defer r.Lock.Unlock()
+		r.lock.Lock()
+		defer r.lock.Unlock()
 		for key := range r.Instances {
 			types = append(types, &proto.ServiceType{Type: key})
 		}
@@ -307,8 +340,8 @@ func (r *Registry) ListByType(c context.Context, st *proto.ServiceType) (*proto.
 	res := make(chan []*proto.Service)
 
 	go func() {
-		r.Lock.Lock()
-		defer r.Lock.Unlock()
+		r.lock.Lock()
+		defer r.lock.Unlock()
 		res <- r.Instances[st.Type]
 		return
 	}()
@@ -331,7 +364,12 @@ func (r *Registry) ListByType(c context.Context, st *proto.ServiceType) (*proto.
 //
 //Resource: /registry/service/types/{type}/best
 func (r *Registry) BestInstance(c context.Context, st *proto.ServiceType) (*proto.Service, error) {
-	panic("implement me")
+	instance := r.balancerFunc(st)
+	if instance == nil {
+		return nil, fmt.Errorf("NULL")
+	}
+
+	return instance, nil
 }
 
 //Register registers new service instance in the registry, making this instance available for serving requests and participating in the
@@ -348,8 +386,8 @@ func (r *Registry) Register(c context.Context, s *proto.Service) (*proto.Registr
 	res := make(chan *proto.RegistryResponse)
 
 	go func() {
-		r.Lock.Lock()
-		defer r.Lock.Unlock()
+		r.lock.Lock()
+		defer r.lock.Unlock()
 
 		if b, err := r.exists(s); b {
 			if err != nil {
@@ -375,8 +413,20 @@ func (r *Registry) Register(c context.Context, s *proto.Service) (*proto.Registr
 			return
 		}
 
+		if len(r.Instances[s.Type]) == 0 {
+			r.lastRR[s.Type] = &LastWRRState{Index: -1, Weight: 0}
+		}
 		r.Instances[s.Type] = append(r.Instances[s.Type], s)
-		r.collectiveWeights[s.Type] += s.Weight // add service weight to service type collective weight
+
+		// add service weight to service type collective weight
+		r.weightInfo.CollectiveWeights[s.Type] += s.Weight
+		// find new max weight
+		if r.weightInfo.MaxWeight[s.Type] < s.Weight {
+			r.weightInfo.MaxWeight[s.Type] = s.Weight
+		}
+		// recalculate GCD
+		r.weightInfo.GCD[s.Type] = gcd(r.weightInfo.GCD[s.Type], s.Weight)
+
 		res <- &proto.RegistryResponse{Status: proto.RegistryResponse_OK, Message: "OK"}
 	}()
 
@@ -423,9 +473,9 @@ func getHealth(service *proto.Service) *proto.Health {
 	return health
 }
 
-func (r *Registry) sanitize(corpses []*DeadService) {
-	r.Lock.Lock()
-	defer r.Lock.Unlock()
+func (r *Registry) Sanitize(corpses []*DeadService) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
 
 	sanitizedRegistry := make(map[string][]*proto.Service) // contains slices of service slices without dead services for each service type
 	deletes := 0
@@ -446,12 +496,139 @@ func (r *Registry) sanitize(corpses []*DeadService) {
 			sanitizedRegistry[deadService.ServiceType] = resulting
 		}
 		deletes++
-		//decrease collective weight of dead service type instances
-		r.collectiveWeights[deadService.ServiceType] -= serviceList[deadService.Index].Weight
 	}
-	r.Lock.Lock()
+
 	r.Instances = sanitizedRegistry
-	r.Lock.Unlock()
+	regeneratedTypes := make(map[string]bool)
+	for _, deadService := range corpses {
+		// skip regenerating weight information for service type, which is already processed
+		if regeneratedTypes[deadService.ServiceType] {
+			continue
+		}
+
+		// find max weight for each service type
+		r.weightInfo.MaxWeight[deadService.ServiceType] = getMaxWeight(r.Instances[deadService.ServiceType])
+		// find GCD for each service type
+		r.weightInfo.GCD[deadService.ServiceType] = getGreatestCommonDivisorForWeights(r.Instances[deadService.ServiceType])
+		// calculate collective weight
+		var weightSum int32 = 0
+		for _, instance := range r.Instances[deadService.ServiceType] {
+			weightSum += instance.Weight
+		}
+		r.weightInfo.CollectiveWeights[deadService.ServiceType] = weightSum
+
+		// mark this service type as processed
+		regeneratedTypes[deadService.ServiceType] = true
+	}
+}
+
+//RandomBalancerFunc returns random service from a list of service type services
+func (r *Registry) RandomBalancerFunc(serviceType *proto.ServiceType) *proto.Service {
+	if serviceType == nil {
+		return nil
+	}
+
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	instances := r.Instances[serviceType.Type]
+	if len(instances) == 0 {
+		return nil
+	} else if len(instances) == 1 {
+		return instances[0]
+	}
+
+	instanceIndex := r.rnd.Intn(len(instances))
+
+	return instances[instanceIndex]
+}
+
+func (r *Registry) RoundRobinBalancerFunc(serviceType *proto.ServiceType) *proto.Service {
+	if serviceType == nil {
+		return nil
+	}
+
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	instances := r.Instances[serviceType.Type]
+	lastIndex := r.lastRR[serviceType.Type].Index
+
+	if len(instances) == 0 {
+		return nil
+	} else if len(instances) == 1 {
+		r.lastRR[serviceType.Type].Index = 0
+		return instances[0]
+	}
+
+	// previous balancing op returned last instance in the list
+	if lastIndex+1 >= int32(len(instances)) {
+		r.lastRR[serviceType.Type].Index = 0
+		return instances[0]
+	}
+
+	r.lastRR[serviceType.Type].Index = lastIndex + 1
+	return instances[lastIndex+1]
+}
+
+//WeightedRandomBalancerFunc returns random service from a list of service type services
+func (r *Registry) WeightedRandomBalancerFunc(serviceType *proto.ServiceType) *proto.Service {
+	if serviceType == nil {
+		return nil
+	}
+
+	instances := r.Instances[serviceType.Type]
+	if len(instances) == 0 {
+		return nil
+	} else if len(instances) == 1 {
+		return instances[0]
+	}
+
+	randVal := r.rnd.Int31n(r.weightInfo.CollectiveWeights[serviceType.Type])
+
+	for _, instance := range instances {
+		randVal -= instance.Weight
+		if randVal <= 0 {
+			return instance
+		}
+	}
+
+	return nil
+}
+
+func (r *Registry) WeightedRoundRobinBalancerFunc(serviceType *proto.ServiceType) *proto.Service {
+	if serviceType == nil {
+		return nil
+	}
+
+	instances := r.Instances[serviceType.Type]
+	length := int32(len(instances))
+	if length == 0 {
+		return nil
+	} else if length == 1 {
+		return instances[0]
+	}
+
+	currentWeight := r.lastRR[serviceType.Type].Weight
+	i := r.lastRR[serviceType.Type].Index
+	for {
+		i = (i + 1) % length
+		if i == 0 {
+			currentWeight -= r.weightInfo.GCD[serviceType.Type]
+			if currentWeight <= 0 {
+				currentWeight = r.weightInfo.MaxWeight[serviceType.Type]
+				if currentWeight == 0 {
+					return nil
+				}
+			}
+		}
+
+		if r.Instances[serviceType.Type][i].Weight >= currentWeight {
+			r.lastRR[serviceType.Type].Index = i
+			r.lastRR[serviceType.Type].Weight = currentWeight
+			return r.Instances[serviceType.Type][i]
+		}
+	}
 }
 
 func (r *Registry) exists(s *proto.Service) (bool, error) {
@@ -473,80 +650,43 @@ func (r *Registry) isValidSignature(s *proto.Service) (bool, error) {
 	return true, nil
 }
 
-//RandomBalancerFunc returns random service from a list of service type services
-func (r *Registry) RandomBalancerFunc(serviceType *proto.ServiceType) *proto.Service {
-	if serviceType == nil {
-		return nil
+func getMaxWeight(list []*proto.Service) int32 {
+	length := len(list)
+	if length == 0 {
+		return 0
+	} else if length == 1 {
+		return list[0].Weight
 	}
 
-	r.Lock.Lock()
-	defer r.Lock.Unlock()
-
-	instances := r.Instances[serviceType.Type]
-	if len(instances) == 0 {
-		return nil
-	} else if len(instances) == 1 {
-		return instances[0]
-	}
-
-	instanceIndex := rand.Intn(len(instances))
-
-	return instances[instanceIndex]
-}
-
-func (r *Registry) RoundRobinBalancerFunc(serviceType *proto.ServiceType) *proto.Service {
-	if serviceType == nil {
-		return nil
-	}
-
-	r.Lock.Lock()
-	defer r.Lock.Unlock()
-
-	instances := r.Instances[serviceType.Type]
-	lastIndex := r.lastRRBalancingResult[serviceType.Type]
-
-	if len(instances) == 0 {
-		return nil
-	} else if len(instances) == 1 {
-		r.lastRRBalancingResult[serviceType.Type] = 0
-		return instances[0]
-	}
-
-	// first balancing op or last balancing op returned last instance in the list
-	if lastIndex == math.MinInt32 || lastIndex+1 >= int32(len(instances)) {
-		r.lastRRBalancingResult[serviceType.Type] = 0
-		return instances[0]
-	}
-
-	r.lastRRBalancingResult[serviceType.Type] = lastIndex + 1
-	return instances[lastIndex+1]
-}
-
-//WeightedRandomBalancerFunc returns random service from a list of service type services
-func (r *Registry) WeightedRandomBalancerFunc(serviceType *proto.ServiceType) *proto.Service {
-	if serviceType == nil {
-		return nil
-	}
-
-	instances := r.Instances[serviceType.Type]
-	if len(instances) == 0 {
-		return nil
-	} else if len(instances) == 1 {
-		return instances[0]
-	}
-
-	randVal := rand.Int31n(r.collectiveWeights[serviceType.Type])
-
-	for _, instance := range instances {
-		randVal -= instance.Weight
-		if randVal <= 0 {
-			return instance
+	max := list[0].Weight
+	for _, inst := range list {
+		if inst.Weight > max {
+			max = inst.Weight
 		}
 	}
 
-	return nil
+	return max
 }
 
-func (r *Registry) WeightedRoundRobinBalancerFunc(serviceType *proto.ServiceType) *proto.Service {
+func getGreatestCommonDivisorForWeights(list []*proto.Service) int32 {
+	length := len(list)
+	if length == 0 {
+		return 0
+	} else if length == 1 {
+		return list[0].Weight
+	}
 
+	result := gcd(list[0].Weight, list[1].Weight)
+	for index := 2; index < length; index++ {
+		result = gcd(result, list[index].Weight)
+	}
+
+	return result
+}
+
+func gcd(x, y int32) int32 {
+	for y != 0 {
+		x, y = y, x%y
+	}
+	return x
 }
