@@ -1,2 +1,9 @@
-./idea/
+.idea/
 vendor/
+
+.DS_Store
+admin/micro-todo-admin/node_modules/
+/dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

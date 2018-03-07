@@ -1,0 +1,289 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "registry_service.proto",
+    "version": "version not set"
+  },
+  "schemes": [
+    "http",
+    "https"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/registry/health": {
+      "get": {
+        "operationId": "GetHealth",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/protoHealth"
+            }
+          }
+        },
+        "tags": [
+          "RegistryService"
+        ]
+      }
+    },
+    "/registry/service": {
+      "post": {
+        "operationId": "Register",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/protoRegistryResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/protoService"
+            }
+          }
+        ],
+        "tags": [
+          "RegistryService"
+        ]
+      }
+    },
+    "/registry/service/types": {
+      "get": {
+        "operationId": "ListServicesTypes",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/protoServiceTypesList"
+            }
+          }
+        },
+        "tags": [
+          "RegistryService"
+        ]
+      }
+    },
+    "/registry/service/types/{type}": {
+      "get": {
+        "operationId": "ListByType",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/protoServiceList"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "type",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "RegistryService"
+        ]
+      }
+    },
+    "/registry/service/types/{type}/best": {
+      "get": {
+        "operationId": "BestInstance",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/protoService"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "type",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "RegistryService"
+        ]
+      }
+    },
+    "/registry/service/types/{type}/{index}": {
+      "get": {
+        "operationId": "GetInfo",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/protoService"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "type",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "index",
+            "in": "path",
+            "required": true,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "RegistryService"
+        ]
+      }
+    },
+    "/registry/service/{instanceName}": {
+      "get": {
+        "operationId": "GetInstanceInfo",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/protoService"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "RegistryService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "RegistryResponseCode": {
+      "type": "string",
+      "enum": [
+        "__DEFAULT",
+        "OK",
+        "INVALID",
+        "FAIL",
+        "CANCELED",
+        "NOT_IMPLEMENTED",
+        "NULL",
+        "EXISTS"
+      ],
+      "default": "__DEFAULT"
+    },
+    "protoHealth": {
+      "type": "object",
+      "properties": {
+        "up": {
+          "type": "boolean",
+          "format": "boolean"
+        }
+      }
+    },
+    "protoRegistryResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/RegistryResponseCode"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "title": "RegistryResponse represents response from Registry service\nIt contains status code and optional message"
+    },
+    "protoService": {
+      "type": "object",
+      "properties": {
+        "proto": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "httpPort": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "httpsPort": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "routes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "health": {
+          "type": "string"
+        },
+        "weight": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "signature": {
+          "type": "string"
+        }
+      }
+    },
+    "protoServiceList": {
+      "type": "object",
+      "properties": {
+        "services": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protoService"
+          }
+        }
+      }
+    },
+    "protoServiceType": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        }
+      }
+    },
+    "protoServiceTypesList": {
+      "type": "object",
+      "properties": {
+        "types": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protoServiceType"
+          }
+        }
+      }
+    }
+  }
+}
