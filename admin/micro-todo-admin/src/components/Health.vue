@@ -181,8 +181,8 @@ export default {
   },
 
   async created () {
-    // this.update()
-    // setInterval(() => this.update(), 6000)
+    this.update()
+    setInterval(() => this.update(), 6000)
     setInterval(() => this.pingAndRemoveDead(), 2000)
   }
 }
