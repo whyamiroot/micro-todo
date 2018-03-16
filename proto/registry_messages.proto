@@ -2,7 +2,10 @@ syntax = "proto3";
 
 package proto;
 
-message Empty {}
+/*****************************
+ * Registry service protocol *
+ *****************************
+ */
 
 message ServiceType {
     string type = 1;
@@ -29,18 +32,19 @@ message RegistryResponse {
 
     Code status = 1;
     string message = 2;
+    uint32 service_index = 3;
 }
 
 message Service {
     string proto = 1;
     string type = 2;
     string host = 3;
-    int32 port = 4;
-    int32 httpPort = 5;
-    int32 httpsPort = 6;
+    uint32 port = 4;
+    uint32 httpPort = 5;
+    uint32 httpsPort = 6;
     repeated string routes = 7;
     string health = 8;
-    int32 weight = 9;
+    uint32 weight = 9;
     string signature = 10;
 }
 
@@ -50,13 +54,9 @@ message ServiceList {
 
 message ServiceInfo {
     string type = 1;
-    int32 index = 2;
+    uint32 index = 2;
 }
 
 message InstanceInfo {
     string instanceName = 1;
-}
-
-message Health {
-    bool up = 1;
 }

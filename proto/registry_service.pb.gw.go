@@ -140,7 +140,7 @@ func request_RegistryService_GetInfo_0(ctx context.Context, marshaler runtime.Ma
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "index")
 	}
 
-	protoReq.Index, err = runtime.Int32(val)
+	protoReq.Index, err = runtime.Uint32(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "index", err)

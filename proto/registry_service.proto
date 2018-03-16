@@ -3,7 +3,8 @@ syntax = "proto3";
 package proto;
 
 import "google/api/annotations.proto";
-import "messages.proto";
+import "registry_messages.proto";
+import "general.proto";
 
 service RegistryService {
 

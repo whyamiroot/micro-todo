@@ -1,7 +1,7 @@
 {
   "swagger": "2.0",
   "info": {
-    "title": "messages.proto",
+    "title": "registry_messages.proto",
     "version": "version not set"
   },
   "schemes": [

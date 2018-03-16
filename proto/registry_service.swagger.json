@@ -144,7 +144,7 @@
             "in": "path",
             "required": true,
             "type": "integer",
-            "format": "int32"
+            "format": "int64"
           }
         ],
         "tags": [
@@ -178,20 +178,6 @@
     }
   },
   "definitions": {
-    "RegistryResponseCode": {
-      "type": "string",
-      "enum": [
-        "__DEFAULT",
-        "OK",
-        "INVALID",
-        "FAIL",
-        "CANCELED",
-        "NOT_IMPLEMENTED",
-        "NULL",
-        "EXISTS"
-      ],
-      "default": "__DEFAULT"
-    },
     "protoHealth": {
       "type": "object",
       "properties": {
@@ -205,13 +191,31 @@
       "type": "object",
       "properties": {
         "status": {
-          "$ref": "#/definitions/RegistryResponseCode"
+          "$ref": "#/definitions/protoRegistryResponseCode"
         },
         "message": {
           "type": "string"
+        },
+        "service_index": {
+          "type": "integer",
+          "format": "int64"
         }
       },
       "title": "RegistryResponse represents response from Registry service\nIt contains status code and optional message"
+    },
+    "protoRegistryResponseCode": {
+      "type": "string",
+      "enum": [
+        "__DEFAULT",
+        "OK",
+        "INVALID",
+        "FAIL",
+        "CANCELED",
+        "NOT_IMPLEMENTED",
+        "NULL",
+        "EXISTS"
+      ],
+      "default": "__DEFAULT"
     },
     "protoService": {
       "type": "object",
@@ -227,15 +231,15 @@
         },
         "port": {
           "type": "integer",
-          "format": "int32"
+          "format": "int64"
         },
         "httpPort": {
           "type": "integer",
-          "format": "int32"
+          "format": "int64"
         },
         "httpsPort": {
           "type": "integer",
-          "format": "int32"
+          "format": "int64"
         },
         "routes": {
           "type": "array",
@@ -248,7 +252,7 @@
         },
         "weight": {
           "type": "integer",
-          "format": "int32"
+          "format": "int64"
         },
         "signature": {
           "type": "string"

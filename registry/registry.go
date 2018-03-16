@@ -29,15 +29,15 @@ type ServiceWeightInfo struct {
 
 	//CollectiveWeights is map of weight sums, where key is the service type and value is a sum of weights of all
 	//instances of this service type
-	CollectiveWeights map[string]int32
+	CollectiveWeights map[string]uint32
 
 	//MaxWeight is a map of maximum weights, where key is the service type and value is the biggest weight of all
 	//instances of this service type
-	MaxWeight map[string]int32
+	MaxWeight map[string]uint32
 
 	//GCD is a map of greatest common divisor for all weights, where key is the service type and value is the greatest
 	//common divisor for all weights of instances of this service type
-	GCD map[string]int32
+	GCD map[string]uint32
 }
 
 //LastWRRState saves state of the last round of Weighted Round Robin balancing algorithm
@@ -71,9 +71,9 @@ func NewRegistry() *Registry {
 		lastRR:    make(map[string]*LastWRRState),
 		rnd:       rand.New(rand.NewSource(time.Now().UnixNano())),
 		weightInfo: &ServiceWeightInfo{
-			CollectiveWeights: make(map[string]int32),
-			GCD:               make(map[string]int32),
-			MaxWeight:         make(map[string]int32),
+			CollectiveWeights: make(map[string]uint32),
+			GCD:               make(map[string]uint32),
+			MaxWeight:         make(map[string]uint32),
 		},
 	}
 	return reg
@@ -511,7 +511,7 @@ func (r *Registry) Sanitize(corpses []*DeadService) {
 		// find GCD for each service type
 		r.weightInfo.GCD[deadService.ServiceType] = getGreatestCommonDivisorForWeights(r.Instances[deadService.ServiceType])
 		// calculate collective weight
-		var weightSum int32 = 0
+		var weightSum uint32 = 0
 		for _, instance := range r.Instances[deadService.ServiceType] {
 			weightSum += instance.Weight
 		}
@@ -584,7 +584,7 @@ func (r *Registry) WeightedRandomBalancerFunc(serviceType *proto.ServiceType) *p
 		return instances[0]
 	}
 
-	randVal := r.rnd.Int31n(r.weightInfo.CollectiveWeights[serviceType.Type])
+	randVal := uint32(r.rnd.Int31n(int32(r.weightInfo.CollectiveWeights[serviceType.Type])))
 
 	for _, instance := range instances {
 		randVal -= instance.Weight
@@ -614,16 +614,16 @@ func (r *Registry) WeightedRoundRobinBalancerFunc(serviceType *proto.ServiceType
 	for {
 		i = (i + 1) % length
 		if i == 0 {
-			currentWeight -= r.weightInfo.GCD[serviceType.Type]
+			currentWeight -= int32(r.weightInfo.GCD[serviceType.Type])
 			if currentWeight <= 0 {
-				currentWeight = r.weightInfo.MaxWeight[serviceType.Type]
+				currentWeight = int32(r.weightInfo.MaxWeight[serviceType.Type])
 				if currentWeight == 0 {
 					return nil
 				}
 			}
 		}
 
-		if r.Instances[serviceType.Type][i].Weight >= currentWeight {
+		if int32(r.Instances[serviceType.Type][i].Weight) >= currentWeight {
 			r.lastRR[serviceType.Type].Index = i
 			r.lastRR[serviceType.Type].Weight = currentWeight
 			return r.Instances[serviceType.Type][i]
@@ -650,7 +650,7 @@ func (r *Registry) isValidSignature(s *proto.Service) (bool, error) {
 	return true, nil
 }
 
-func getMaxWeight(list []*proto.Service) int32 {
+func getMaxWeight(list []*proto.Service) uint32 {
 	length := len(list)
 	if length == 0 {
 		return 0
@@ -668,7 +668,7 @@ func getMaxWeight(list []*proto.Service) int32 {
 	return max
 }
 
-func getGreatestCommonDivisorForWeights(list []*proto.Service) int32 {
+func getGreatestCommonDivisorForWeights(list []*proto.Service) uint32 {
 	length := len(list)
 	if length == 0 {
 		return 0
@@ -684,7 +684,7 @@ func getGreatestCommonDivisorForWeights(list []*proto.Service) int32 {
 	return result
 }
 
-func gcd(x, y int32) int32 {
+func gcd(x, y uint32) uint32 {
 	for y != 0 {
 		x, y = y, x%y
 	}

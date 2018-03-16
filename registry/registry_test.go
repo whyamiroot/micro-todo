@@ -30,9 +30,9 @@ func createDummyRegistry(serviceCount int) *Registry {
 		dummyRegistry.Instances["test"] = append(dummyRegistry.Instances["test"], &proto.Service{
 			Proto:     "http",
 			Type:      "test",
-			HttpPort:  int32(i),
+			HttpPort:  uint32(i),
 			Signature: strconv.Itoa(i),
-			Weight:    int32(i + 1),
+			Weight:    uint32(i + 1),
 		})
 	}
 	dummyRegistry.lastRR["test"] = &LastWRRState{Index: -1, Weight: 0}
@@ -40,7 +40,7 @@ func createDummyRegistry(serviceCount int) *Registry {
 	// find GCD for each service type
 	dummyRegistry.weightInfo.GCD["test"] = getGreatestCommonDivisorForWeights(dummyRegistry.Instances["test"])
 	// calculate collective weight
-	var weightSum int32 = 0
+	var weightSum uint32 = 0
 	for _, instance := range dummyRegistry.Instances["test"] {
 		weightSum += instance.Weight
 	}
@@ -62,7 +62,7 @@ func TestRegistry_Register(t *testing.T) {
 		Proto:     "http",
 		Type:      "test",
 		Host:      u.Hostname(),
-		HttpPort:  int32(port),
+		HttpPort:  uint32(port),
 		Health:    "/",
 		Signature: "12345",
 	})
@@ -77,7 +77,7 @@ func TestRegistry_Register(t *testing.T) {
 
 func TestRegistry_RoundRobinBalancerFunc(t *testing.T) {
 	reg := createDummyRegistry(3)
-	var balanceHistory [9]int32
+	var balanceHistory [9]uint32
 	for i := 0; i < 9; i++ {
 		best := reg.RoundRobinBalancerFunc(&proto.ServiceType{"test"})
 		if best == nil {
@@ -102,7 +102,7 @@ func TestRegistry_RoundRobinBalancerFunc(t *testing.T) {
 func TestRegistry_WeightedRoundRobinBalancerFunc(t *testing.T) {
 	t.Run("Balancing is performed according to weights", func(t *testing.T) {
 		reg := createDummyRegistry(3)
-		balanceHistory := make(map[int32]int)
+		balanceHistory := make(map[uint32]int)
 		for i := 0; i < 6; i++ {
 			best := reg.WeightedRoundRobinBalancerFunc(&proto.ServiceType{"test"})
 			if best == nil {
@@ -121,7 +121,7 @@ func TestRegistry_WeightedRoundRobinBalancerFunc(t *testing.T) {
 	t.Run("Balancing result is the same every time", func(t *testing.T) {
 		for i := 0; i < 1000; i++ {
 			reg := createDummyRegistry(3)
-			balanceHistory := make(map[int32]int)
+			balanceHistory := make(map[uint32]int)
 			for i := 0; i < 6; i++ {
 				best := reg.WeightedRoundRobinBalancerFunc(&proto.ServiceType{"test"})
 				if best == nil {

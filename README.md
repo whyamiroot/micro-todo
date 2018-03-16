@@ -103,9 +103,7 @@ For information about service API and configuration see following files:
     - [x] Periodically updates status and logs
 - `Logger`:
     - [ ] Receives logs from different services
-    - [ ] Stores them by service type
-    - [ ] Stores them by service type instance
-    - [ ] Responses with logs of specific service type
+    - [ ] Stores them by service type instances
     - [ ] Responses with logs of specific service type instance
     - [ ] Persists logs on disks
     
