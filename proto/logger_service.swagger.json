@@ -1,0 +1,283 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "logger_service.proto",
+    "version": "version not set"
+  },
+  "schemes": [
+    "http",
+    "https"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/logger/entry": {
+      "post": {
+        "operationId": "AddLog",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/protoLoggerResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/protoLogEntry"
+            }
+          }
+        ],
+        "tags": [
+          "LoggerService"
+        ]
+      }
+    },
+    "/logger/entry/stream/{type}/{index}": {
+      "get": {
+        "operationId": "GetLogStream",
+        "responses": {
+          "200": {
+            "description": "(streaming responses)",
+            "schema": {
+              "$ref": "#/definitions/protoLogEntry"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "type",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "index",
+            "in": "path",
+            "required": true,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "signature",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "LoggerService"
+        ]
+      }
+    },
+    "/logger/entry/stream/{type}/{index}/constrainted": {
+      "get": {
+        "operationId": "GetLogStreamWithConstraint",
+        "responses": {
+          "200": {
+            "description": "(streaming responses)",
+            "schema": {
+              "$ref": "#/definitions/protoLogEntry"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "type",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "index",
+            "in": "path",
+            "required": true,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "lastNLogs",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "fromToConstraint.fromLogIndex",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "fromToConstraint.toLogIndex",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "signature",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "LoggerService"
+        ]
+      }
+    },
+    "/logger/entry/{type}/{index}/count": {
+      "get": {
+        "operationId": "GetLogEntriesCount",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/protoLogEntriesCount"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "type",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "index",
+            "in": "path",
+            "required": true,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "signature",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "LoggerService"
+        ]
+      }
+    },
+    "/logger/health": {
+      "get": {
+        "operationId": "GetHealth",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/protoHealth"
+            }
+          }
+        },
+        "tags": [
+          "LoggerService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "protoHealth": {
+      "type": "object",
+      "properties": {
+        "up": {
+          "type": "boolean",
+          "format": "boolean"
+        }
+      }
+    },
+    "protoLogEntriesCount": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "index": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "count": {
+          "type": "string",
+          "format": "uint64"
+        }
+      }
+    },
+    "protoLogEntry": {
+      "type": "object",
+      "properties": {
+        "severity": {
+          "$ref": "#/definitions/protoSeverity"
+        },
+        "type": {
+          "type": "string"
+        },
+        "index": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "timestampUTC": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "message": {
+          "type": "string"
+        },
+        "signature": {
+          "type": "string"
+        }
+      }
+    },
+    "protoLoggerResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/protoLoggerResponseCode"
+        }
+      }
+    },
+    "protoLoggerResponseCode": {
+      "type": "string",
+      "enum": [
+        "__DEFAULT",
+        "OK",
+        "SERVICE_FAIL",
+        "NOT_AUTHORIZED",
+        "SERVICE_UNKNOWN"
+      ],
+      "default": "__DEFAULT"
+    },
+    "protoSeverity": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "$ref": "#/definitions/protoSeveritySeverity"
+        }
+      }
+    },
+    "protoSeveritySeverity": {
+      "type": "string",
+      "enum": [
+        "DEBUG",
+        "INFO",
+        "WARN",
+        "ERROR",
+        "FATAL"
+      ],
+      "default": "DEBUG"
+    }
+  }
+}
