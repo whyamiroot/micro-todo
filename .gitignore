@@ -1,5 +1,6 @@
 .idea/
 vendor/
+admin-dart/.pub/
 
 .DS_Store
 admin/micro-todo-admin/node_modules/

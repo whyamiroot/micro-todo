@@ -1,0 +1,16 @@
+<div class="card">
+    <info-chip label="Protocol" [value]="service.proto"></info-chip>
+    <info-chip label="Type" [value]="service.type"></info-chip>
+    <info-chip label="Host" [value]="service.host"></info-chip>
+    <info-chip label="RPC Port" [value]="service.port"></info-chip>
+    <info-chip label="HTTP Port" [value]="service.httpPort"></info-chip>
+    <info-chip label="HTTPS Port" [value]="service.httpsPort"></info-chip>
+    <material-expansionpanel autoDismissable alwaysShowExpandIcon="true" name="Routes" flat>
+        <material-list *ngFor="let route of service.routes">
+            <material-list-item>{{route}}</material-list-item>
+        </material-list>
+    </material-expansionpanel>
+    <info-chip label="Health route" [value]="service.health"></info-chip>
+    <info-chip label="Weight" [value]="service.weight"></info-chip>
+    <info-chip label="Signature" [value]="service.signature"></info-chip>
+</div>

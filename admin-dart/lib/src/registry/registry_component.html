@@ -1,0 +1,11 @@
+<div class="card registry-card">
+    <b>Registry</b><br />
+    <info-chip label="Protocol" [value]="registryService.registry.proto"></info-chip>
+    <info-chip label="Host" [value]="registryService.registry.host"></info-chip>
+    <info-chip label="Port" [value]="registryService.registry.port"></info-chip>
+    <info-chip label="Is Alive" [value]="isAlive" (click)="healthCheck()" tooltipTarget #ref="tooltipTarget"></info-chip>
+    <material-tooltip-text [for]="ref">
+        Click to repeat Registry service health check
+    </material-tooltip-text>
+    <material-spinner *ngIf="healthCheckInProgress"></material-spinner>
+</div>

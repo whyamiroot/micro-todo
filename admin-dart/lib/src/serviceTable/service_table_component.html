@@ -1,0 +1,5 @@
+<div class="serviceTypeBlock" *ngFor="let type of services.keys.toList()">
+    <div class="card" *ngFor="let s of services[type]">
+        <service [service]="s"></service>
+    </div>
+</div>
