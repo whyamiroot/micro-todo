@@ -1,15 +1,8 @@
+required = ["github.com/golang/protobuf/protoc-gen-go"]
 
 [[constraint]]
   name = "google.golang.org/grpc"
   version = "1.9.2"
-
-[[constraint]]
-  branch = "v2"
-  name = "gopkg.in/mgo.v2"
-
-[[constraint]]
-  name = "github.com/kataras/iris"
-  version = "10.0.2"
 
 [[constraint]]
   name = "github.com/spf13/viper"

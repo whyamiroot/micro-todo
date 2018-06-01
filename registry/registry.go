@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"math/rand"
 	"net"
 	"net/http"
@@ -21,8 +22,8 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-//balancerFunc is a pointer to the load balancing function, which should return service type and service instance index
-type BalancerFunc func(serviceType *proto.ServiceType) *proto.Service
+//BalancerFunc is a pointer to the load balancing function, which should return service type and service instance index
+type BalancerFunc func(registry *Registry, serviceType *proto.ServiceType) *proto.Service
 
 //ServiceWeightInfo is a helper data structure for keeping information about weights
 type ServiceWeightInfo struct {
@@ -50,11 +51,11 @@ type LastWRRState struct {
 type Registry struct {
 	Instances map[string][]*proto.Service
 
-	balancerFunc BalancerFunc
-	lock         *sync.Mutex
-	lastRR       map[string]*LastWRRState
-	weightInfo   *ServiceWeightInfo
-	rnd          *rand.Rand
+	BalancerFunc BalancerFunc
+	Lock         *sync.Mutex
+	LastRR       map[string]*LastWRRState
+	WeightInfo   *ServiceWeightInfo
+	Rnd          *rand.Rand
 }
 
 //DeadService is a data structure which defines dead service instance which should be removed from registry
@@ -67,10 +68,10 @@ type DeadService struct {
 func NewRegistry() *Registry {
 	reg := &Registry{
 		Instances: make(map[string][]*proto.Service),
-		lock:      &sync.Mutex{},
-		lastRR:    make(map[string]*LastWRRState),
-		rnd:       rand.New(rand.NewSource(time.Now().UnixNano())),
-		weightInfo: &ServiceWeightInfo{
+		Lock:      &sync.Mutex{},
+		LastRR:    make(map[string]*LastWRRState),
+		Rnd:       rand.New(rand.NewSource(time.Now().UnixNano())),
+		WeightInfo: &ServiceWeightInfo{
 			CollectiveWeights: make(map[string]uint32),
 			GCD:               make(map[string]uint32),
 			MaxWeight:         make(map[string]uint32),
@@ -79,22 +80,32 @@ func NewRegistry() *Registry {
 	return reg
 }
 
+func (r *Registry) SetCustomBalancerFunc(f BalancerFunc) {
+	if f == nil {
+		log.Fatal("Nil balancing function")
+	}
+
+	r.BalancerFunc = f
+}
+
 //StartRegistryServiceAndListen starts gRPC and HTTP servers for Registry service
 func (r *Registry) StartRegistryServiceAndListen() {
 	r.StartHealthChecks()
 	envConf := GetConfig()
 
-	switch envConf.BalancerType {
-	case BalanceRandom:
-		r.balancerFunc = r.RandomBalancerFunc
-	case BalanceRoundRobin:
-		r.balancerFunc = r.RoundRobinBalancerFunc
-	case BalanceWeightedRandom:
-		r.balancerFunc = r.WeightedRandomBalancerFunc
-	case BalanceWeightedRoundRobin:
-		r.balancerFunc = r.WeightedRoundRobinBalancerFunc
-	default:
-		r.balancerFunc = r.WeightedRoundRobinBalancerFunc
+	if r.BalancerFunc == nil {
+		switch envConf.BalancerType {
+		case BalanceRandom:
+			r.BalancerFunc = RandomBalancerFunc
+		case BalanceRoundRobin:
+			r.BalancerFunc = RoundRobinBalancerFunc
+		case BalanceWeightedRandom:
+			r.BalancerFunc = WeightedRandomBalancerFunc
+		case BalanceWeightedRoundRobin:
+			r.BalancerFunc = WeightedRoundRobinBalancerFunc
+		default:
+			r.BalancerFunc = RandomBalancerFunc
+		}
 	}
 
 	if envConf.RPCPort == 0 {
@@ -224,8 +235,8 @@ func (r *Registry) GetInfo(c context.Context, si *proto.ServiceInfo) (*proto.Ser
 	res := make(chan *proto.Service)
 
 	go func() {
-		r.lock.Lock()
-		defer r.lock.Unlock()
+		r.Lock.Lock()
+		defer r.Lock.Unlock()
 		if length := len(r.Instances[si.Type]); length != 0 && int(si.Index) < length && r.Instances[si.Type][si.Index] != nil {
 			res <- r.Instances[si.Type][si.Index]
 		} else {
@@ -271,8 +282,8 @@ func (r *Registry) GetInstanceInfo(c context.Context, i *proto.InstanceInfo) (*p
 
 	res := make(chan *proto.Service)
 	go func() {
-		r.lock.Lock()
-		defer r.lock.Unlock()
+		r.Lock.Lock()
+		defer r.Lock.Unlock()
 		if l := len(r.Instances[serviceType]); l != 0 && int(index) < l && r.Instances[serviceType][index] != nil {
 			res <- r.Instances[serviceType][index]
 		} else {
@@ -306,8 +317,8 @@ func (r *Registry) ListServicesTypes(c context.Context, _ *proto.Empty) (*proto.
 
 	go func() {
 		var types []*proto.ServiceType
-		r.lock.Lock()
-		defer r.lock.Unlock()
+		r.Lock.Lock()
+		defer r.Lock.Unlock()
 		for key := range r.Instances {
 			types = append(types, &proto.ServiceType{Type: key})
 		}
@@ -340,8 +351,8 @@ func (r *Registry) ListByType(c context.Context, st *proto.ServiceType) (*proto.
 	res := make(chan []*proto.Service)
 
 	go func() {
-		r.lock.Lock()
-		defer r.lock.Unlock()
+		r.Lock.Lock()
+		defer r.Lock.Unlock()
 		res <- r.Instances[st.Type]
 		return
 	}()
@@ -364,7 +375,7 @@ func (r *Registry) ListByType(c context.Context, st *proto.ServiceType) (*proto.
 //
 //Resource: /registry/service/types/{type}/best
 func (r *Registry) BestInstance(c context.Context, st *proto.ServiceType) (*proto.Service, error) {
-	instance := r.balancerFunc(st)
+	instance := r.BalancerFunc(r, st)
 	if instance == nil {
 		return nil, fmt.Errorf("NULL")
 	}
@@ -383,11 +394,36 @@ func (r *Registry) Register(c context.Context, s *proto.Service) (*proto.Registr
 		return &proto.RegistryResponse{Status: proto.RegistryResponse_NULL, Message: "No service received"}, nil
 	}
 
+	if s.Signature == "" || s.Port == 0 || s.Host == "" {
+		return &proto.RegistryResponse{Status: proto.RegistryResponse_INVALID, Message: "Invalid service"}, nil
+	}
+
+	if !(s.Proto == "http" || s.Proto == "https" || s.Proto == "rpc") {
+		return &proto.RegistryResponse{Status: proto.RegistryResponse_INVALID, Message: "Unsupported protocol"}, nil
+	}
+
+	if (s.Proto == "http" && s.HttpPort == 0) || (s.Proto == "https" && s.HttpsPort == 0) {
+		return &proto.RegistryResponse{Status: proto.RegistryResponse_INVALID, Message: "No port for HTTP/HTTPS server specified"}, nil
+	}
+
+	health := getHealth(s)
+	if health == nil || !health.Up {
+		return &proto.RegistryResponse{Status: proto.RegistryResponse_NOT_IMPLEMENTED, Message: "Health check failed"}, nil
+	}
+
+	if b, err := r.isValidSignature(s); !b {
+		if err != nil {
+			return &proto.RegistryResponse{Status: proto.RegistryResponse_NULL, Message: "No service received"}, nil
+		} else {
+			return &proto.RegistryResponse{Status: proto.RegistryResponse_INVALID, Message: "Service signature is invalid"}, nil
+		}
+	}
+
 	res := make(chan *proto.RegistryResponse)
 
 	go func() {
-		r.lock.Lock()
-		defer r.lock.Unlock()
+		r.Lock.Lock()
+		defer r.Lock.Unlock()
 
 		if b, err := r.exists(s); b {
 			if err != nil {
@@ -398,34 +434,19 @@ func (r *Registry) Register(c context.Context, s *proto.Service) (*proto.Registr
 			return
 		}
 
-		if b, err := r.isValidSignature(s); !b {
-			if err != nil {
-				res <- &proto.RegistryResponse{Status: proto.RegistryResponse_NULL, Message: "No service received"}
-			} else {
-				res <- &proto.RegistryResponse{Status: proto.RegistryResponse_INVALID, Message: "Service signature is invalid"}
-			}
-			return
-		}
-
-		health := getHealth(s)
-		if health == nil || !health.Up {
-			res <- &proto.RegistryResponse{Status: proto.RegistryResponse_NOT_IMPLEMENTED, Message: "Health check failed"}
-			return
-		}
-
 		if len(r.Instances[s.Type]) == 0 {
-			r.lastRR[s.Type] = &LastWRRState{Index: -1, Weight: 0}
+			r.LastRR[s.Type] = &LastWRRState{Index: -1, Weight: 0}
 		}
 		r.Instances[s.Type] = append(r.Instances[s.Type], s)
 
 		// add service weight to service type collective weight
-		r.weightInfo.CollectiveWeights[s.Type] += s.Weight
+		r.WeightInfo.CollectiveWeights[s.Type] += s.Weight
 		// find new max weight
-		if r.weightInfo.MaxWeight[s.Type] < s.Weight {
-			r.weightInfo.MaxWeight[s.Type] = s.Weight
+		if r.WeightInfo.MaxWeight[s.Type] < s.Weight {
+			r.WeightInfo.MaxWeight[s.Type] = s.Weight
 		}
 		// recalculate GCD
-		r.weightInfo.GCD[s.Type] = gcd(r.weightInfo.GCD[s.Type], s.Weight)
+		r.WeightInfo.GCD[s.Type] = gcd(r.WeightInfo.GCD[s.Type], s.Weight)
 
 		res <- &proto.RegistryResponse{Status: proto.RegistryResponse_OK, Message: "OK"}
 	}()
@@ -454,7 +475,12 @@ func (r *Registry) String(serviceType string, index int) string {
 
 func getHealth(service *proto.Service) *proto.Health {
 	//TODO use TLS if service has defined its HTTPS server
-	healthURL := service.Proto + "://" + service.Host + ":" + strconv.Itoa(int(service.HttpPort)) + service.Health
+	healthURL := service.Proto + "://" + service.Host + ":" + strconv.Itoa(int(service.HttpPort))
+	if service.Health == "" {
+		healthURL += "/"
+	} else {
+		healthURL += service.Health
+	}
 	resp, err := http.Get(healthURL)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return nil
@@ -474,13 +500,16 @@ func getHealth(service *proto.Service) *proto.Health {
 }
 
 func (r *Registry) Sanitize(corpses []*DeadService) {
-	r.lock.Lock()
-	defer r.lock.Unlock()
 
 	sanitizedRegistry := make(map[string][]*proto.Service) // contains slices of service slices without dead services for each service type
 	deletes := 0
 	var resulting []*proto.Service
 	var serviceList []*proto.Service
+
+	r.Lock.Lock()
+	defer r.Lock.Unlock()
+
+	//Copy all instances except for the dead ones to sanitizedRegistry
 	for _, deadService := range corpses {
 		serviceList = r.Instances[deadService.ServiceType]
 		if len(serviceList) == 0 || deadService.Index >= len(serviceList) {
@@ -490,7 +519,7 @@ func (r *Registry) Sanitize(corpses []*DeadService) {
 		if deadService.Index == 0 {
 			sanitizedRegistry[deadService.ServiceType] = serviceList[1:]
 		} else {
-			//cut dead service from instance list
+			//remove dead service from instance list
 			resulting = serviceList[:deadService.Index-deletes]
 			resulting = append(resulting, serviceList[deadService.Index-deletes+1:]...)
 			sanitizedRegistry[deadService.ServiceType] = resulting
@@ -498,8 +527,10 @@ func (r *Registry) Sanitize(corpses []*DeadService) {
 		deletes++
 	}
 
+	//Now set instances to the sanitized map, which is now free of dead services
 	r.Instances = sanitizedRegistry
 	regeneratedTypes := make(map[string]bool)
+	//Recalculate all information required for balancing algorithms
 	for _, deadService := range corpses {
 		// skip regenerating weight information for service type, which is already processed
 		if regeneratedTypes[deadService.ServiceType] {
@@ -507,15 +538,15 @@ func (r *Registry) Sanitize(corpses []*DeadService) {
 		}
 
 		// find max weight for each service type
-		r.weightInfo.MaxWeight[deadService.ServiceType] = getMaxWeight(r.Instances[deadService.ServiceType])
+		r.WeightInfo.MaxWeight[deadService.ServiceType] = getMaxWeight(r.Instances[deadService.ServiceType])
 		// find GCD for each service type
-		r.weightInfo.GCD[deadService.ServiceType] = getGreatestCommonDivisorForWeights(r.Instances[deadService.ServiceType])
+		r.WeightInfo.GCD[deadService.ServiceType] = getGreatestCommonDivisorForWeights(r.Instances[deadService.ServiceType])
 		// calculate collective weight
 		var weightSum uint32 = 0
 		for _, instance := range r.Instances[deadService.ServiceType] {
 			weightSum += instance.Weight
 		}
-		r.weightInfo.CollectiveWeights[deadService.ServiceType] = weightSum
+		r.WeightInfo.CollectiveWeights[deadService.ServiceType] = weightSum
 
 		// mark this service type as processed
 		regeneratedTypes[deadService.ServiceType] = true
@@ -523,68 +554,72 @@ func (r *Registry) Sanitize(corpses []*DeadService) {
 }
 
 //RandomBalancerFunc returns random service from a list of service type services
-func (r *Registry) RandomBalancerFunc(serviceType *proto.ServiceType) *proto.Service {
-	if serviceType == nil {
+func RandomBalancerFunc(registry *Registry, serviceType *proto.ServiceType) *proto.Service {
+	if serviceType == nil || registry == nil {
 		return nil
 	}
 
-	r.lock.Lock()
-	defer r.lock.Unlock()
+	registry.Lock.Lock()
+	defer registry.Lock.Unlock()
 
-	instances := r.Instances[serviceType.Type]
+	instances := registry.Instances[serviceType.Type]
 	if len(instances) == 0 {
 		return nil
 	} else if len(instances) == 1 {
 		return instances[0]
 	}
 
-	instanceIndex := r.rnd.Intn(len(instances))
+	instanceIndex := registry.Rnd.Intn(len(instances))
 
 	return instances[instanceIndex]
 }
 
-func (r *Registry) RoundRobinBalancerFunc(serviceType *proto.ServiceType) *proto.Service {
-	if serviceType == nil {
+//RoundRobinBalancerFunc returns service of selected service type in round-robin fashion (each after another)
+func RoundRobinBalancerFunc(registry *Registry, serviceType *proto.ServiceType) *proto.Service {
+	if serviceType == nil || registry == nil {
 		return nil
 	}
 
-	r.lock.Lock()
-	defer r.lock.Unlock()
+	registry.Lock.Lock()
+	defer registry.Lock.Unlock()
 
-	instances := r.Instances[serviceType.Type]
-	lastIndex := r.lastRR[serviceType.Type].Index
+	instances := registry.Instances[serviceType.Type]
+	lastIndex := registry.LastRR[serviceType.Type].Index
 
 	if len(instances) == 0 {
 		return nil
 	} else if len(instances) == 1 {
-		r.lastRR[serviceType.Type].Index = 0
+		registry.LastRR[serviceType.Type].Index = 0
 		return instances[0]
 	}
 
-	// previous balancing op returned last instance in the list
+	// previous balancing op returned last instance in the list, so we should return the first instance
 	if lastIndex+1 >= int32(len(instances)) {
-		r.lastRR[serviceType.Type].Index = 0
+		registry.LastRR[serviceType.Type].Index = 0
 		return instances[0]
 	}
 
-	r.lastRR[serviceType.Type].Index = lastIndex + 1
+	registry.LastRR[serviceType.Type].Index = lastIndex + 1
 	return instances[lastIndex+1]
 }
 
 //WeightedRandomBalancerFunc returns random service from a list of service type services
-func (r *Registry) WeightedRandomBalancerFunc(serviceType *proto.ServiceType) *proto.Service {
-	if serviceType == nil {
+func WeightedRandomBalancerFunc(registry *Registry, serviceType *proto.ServiceType) *proto.Service {
+	if serviceType == nil || registry == nil {
 		return nil
 	}
 
-	instances := r.Instances[serviceType.Type]
+	registry.Lock.Lock()
+	defer registry.Lock.Unlock()
+
+	instances := registry.Instances[serviceType.Type]
 	if len(instances) == 0 {
 		return nil
 	} else if len(instances) == 1 {
 		return instances[0]
 	}
 
-	randVal := uint32(r.rnd.Int31n(int32(r.weightInfo.CollectiveWeights[serviceType.Type])))
+	randVal := uint32(registry.Rnd.Int31n(int32(registry.WeightInfo.CollectiveWeights[serviceType.Type])))
 
 	for _, instance := range instances {
 		randVal -= instance.Weight
@@ -596,12 +631,15 @@ func (r *Registry) WeightedRandomBalancerFunc(serviceType *proto.ServiceType) *p
 	return nil
 }
 
-func (r *Registry) WeightedRoundRobinBalancerFunc(serviceType *proto.ServiceType) *proto.Service {
-	if serviceType == nil {
+func WeightedRoundRobinBalancerFunc(registry *Registry, serviceType *proto.ServiceType) *proto.Service {
+	if serviceType == nil || registry == nil {
 		return nil
 	}
 
-	instances := r.Instances[serviceType.Type]
+	registry.Lock.Lock()
+	defer registry.Lock.Unlock()
+
+	instances := registry.Instances[serviceType.Type]
 	length := int32(len(instances))
 	if length == 0 {
 		return nil
@@ -609,24 +647,24 @@ func (r *Registry) WeightedRoundRobinBalancerFunc(serviceType *proto.ServiceType
 		return instances[0]
 	}
 
-	currentWeight := r.lastRR[serviceType.Type].Weight
-	i := r.lastRR[serviceType.Type].Index
+	currentWeight := registry.LastRR[serviceType.Type].Weight
+	i := registry.LastRR[serviceType.Type].Index
 	for {
 		i = (i + 1) % length
 		if i == 0 {
-			currentWeight -= int32(r.weightInfo.GCD[serviceType.Type])
+			currentWeight -= int32(registry.WeightInfo.GCD[serviceType.Type])
 			if currentWeight <= 0 {
-				currentWeight = int32(r.weightInfo.MaxWeight[serviceType.Type])
+				currentWeight = int32(registry.WeightInfo.MaxWeight[serviceType.Type])
 				if currentWeight == 0 {
 					return nil
 				}
 			}
 		}
 
-		if int32(r.Instances[serviceType.Type][i].Weight) >= currentWeight {
-			r.lastRR[serviceType.Type].Index = i
-			r.lastRR[serviceType.Type].Weight = currentWeight
-			return r.Instances[serviceType.Type][i]
+		if int32(registry.Instances[serviceType.Type][i].Weight) >= currentWeight {
+			registry.LastRR[serviceType.Type].Index = i
+			registry.LastRR[serviceType.Type].Weight = currentWeight
+			return registry.Instances[serviceType.Type][i]
 		}
 	}
 }
@@ -637,8 +675,9 @@ func (r *Registry) exists(s *proto.Service) (bool, error) {
 	}
 
 	for _, v := range r.Instances[s.Type] {
-		// Comparing signatures should be enough
-		if v.Signature == s.Signature {
+		// Comparing signatures should be enough, when signature check is implemented
+		//TODO: remove everything except for the signature check
+		if v.Signature == s.Signature && v.Host == s.Host && v.HttpPort == s.HttpPort {
 			return true, nil
 		}
 	}

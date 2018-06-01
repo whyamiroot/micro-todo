@@ -7,7 +7,11 @@
   packages = [
     "jsonpb",
     "proto",
+    "protoc-gen-go",
     "protoc-gen-go/descriptor",
+    "protoc-gen-go/generator",
+    "protoc-gen-go/grpc",
+    "protoc-gen-go/plugin",
     "ptypes",
     "ptypes/any",
     "ptypes/duration",
@@ -102,6 +106,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "741736e4b0882ba94ea3609aa377e71120ffec3cbba22c26a8889c281ff9327e"
+  inputs-digest = "c29c6df61f39c8b215378bf3f92ffaa8e15be1e0047f4b2e027bec59e657f447"
   solver-name = "gps-cdcl"
   solver-version = 1
