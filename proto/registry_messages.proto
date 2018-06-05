@@ -40,12 +40,8 @@ message Service {
     string type = 2;
     string host = 3;
     uint32 port = 4;
-    uint32 httpPort = 5;
-    uint32 httpsPort = 6;
-    repeated string routes = 7;
-    string health = 8;
-    uint32 weight = 9;
-    string signature = 10;
+    string health = 5;
+    uint32 weight = 6;
 }
 
 message ServiceList {

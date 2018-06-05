@@ -28,11 +28,10 @@ func createDummyRegistry(serviceCount int) *Registry {
 	dummyRegistry := NewRegistry()
 	for i := 0; i < serviceCount; i++ {
 		dummyRegistry.Instances["test"] = append(dummyRegistry.Instances["test"], &proto.Service{
-			Proto:     "http",
-			Type:      "test",
-			HttpPort:  uint32(i),
-			Signature: strconv.Itoa(i),
-			Weight:    uint32(i + 1),
+			Proto:  "http",
+			Type:   "test",
+			Port:   uint32(i),
+			Weight: uint32(i + 1),
 		})
 	}
 	dummyRegistry.LastRR["test"] = &LastWRRState{Index: -1, Weight: 0}
@@ -73,13 +72,11 @@ func TestRegistry_Register(t *testing.T) {
 
 			reg := NewRegistry()
 			res, err := reg.Register(context.Background(), &proto.Service{
-				Proto:     "http",
-				Type:      "test",
-				Host:      "",
-				Port:      1234,
-				HttpPort:  uint32(port),
-				Health:    "/",
-				Signature: "12345",
+				Proto:  "http",
+				Type:   "test",
+				Host:   "",
+				Port:   uint32(port),
+				Health: "/",
 			})
 
 			if err == nil && res.Message == "OK" {
@@ -96,37 +93,11 @@ func TestRegistry_Register(t *testing.T) {
 
 			reg := NewRegistry()
 			res, err := reg.Register(context.Background(), &proto.Service{
-				Proto:     "http",
-				Type:      "test",
-				Host:      u.Hostname(),
-				Port:      1234,
-				HttpPort:  65536,
-				Health:    "/",
-				Signature: "12345",
-			})
-
-			if err == nil && res.Message == "OK" {
-				t.Fatal("Registration with port bigger than 65535 should fail")
-			}
-		})
-
-		t.Run("Registering with empty signature should fail", func(t *testing.T) {
-			mock := MockHealth{}
-			server := httptest.NewServer(mock)
-			defer server.Close()
-
-			u, _ := url.Parse(server.URL)
-			port, _ := strconv.Atoi(u.Port())
-
-			reg := NewRegistry()
-			res, err := reg.Register(context.Background(), &proto.Service{
-				Proto:     "http",
-				Type:      "test",
-				Host:      u.Hostname(),
-				Port:      1234,
-				HttpPort:  uint32(port),
-				Health:    "/",
-				Signature: "",
+				Proto:  "http",
+				Type:   "test",
+				Host:   u.Hostname(),
+				Port:   65536,
+				Health: "/",
 			})
 
 			if err == nil && res.Message == "OK" {
@@ -137,13 +108,11 @@ func TestRegistry_Register(t *testing.T) {
 		t.Run("Registering service, which does not respond to health check should fail", func(t *testing.T) {
 			reg := NewRegistry()
 			res, err := reg.Register(context.Background(), &proto.Service{
-				Proto:     "http",
-				Type:      "test",
-				Host:      "localhost",
-				Port:      1234,
-				HttpPort:  12345,
-				Health:    "/",
-				Signature: "12345",
+				Proto:  "http",
+				Type:   "test",
+				Host:   "localhost",
+				Port:   12345,
+				Health: "/",
 			})
 
 			if err == nil && res.Message == "OK" {
@@ -151,16 +120,14 @@ func TestRegistry_Register(t *testing.T) {
 			}
 		})
 
-		t.Run("Registering HTTPS service without HTTPS port provided should fail", func(t *testing.T) {
+		t.Run("Registering HTTPS service without HTTP port provided should fail", func(t *testing.T) {
 			reg := NewRegistry()
 			res, err := reg.Register(context.Background(), &proto.Service{
-				Proto:     "http",
-				Type:      "test",
-				Host:      "localhost",
-				Port:      1234,
-				HttpPort:  0,
-				Health:    "/",
-				Signature: "12345",
+				Proto:  "http",
+				Type:   "test",
+				Host:   "localhost",
+				Port:   0,
+				Health: "/",
 			})
 
 			if err == nil && res.Message == "OK" {
@@ -168,34 +135,14 @@ func TestRegistry_Register(t *testing.T) {
 			}
 		})
 
-		t.Run("Registering service without RPC port should fail", func(t *testing.T) {
-			reg := NewRegistry()
-			res, err := reg.Register(context.Background(), &proto.Service{
-				Proto:     "http",
-				Type:      "test",
-				Host:      "localhost",
-				Port:      0,
-				HttpPort:  0,
-				Health:    "/",
-				Signature: "12345",
-			})
-
-			if err == nil && res.Message == "OK" {
-				t.Fatal("Registering service without RPC port should fail")
-			}
-		})
-
 		t.Run("Registering service with unsupported protocol should fail", func(t *testing.T) {
 			reg := NewRegistry()
 			res, err := reg.Register(context.Background(), &proto.Service{
-				Proto:     "tcp",
-				Type:      "test",
-				Host:      "localhost",
-				Port:      100,
-				HttpPort:  80,
-				HttpsPort: 443,
-				Health:    "/",
-				Signature: "12345",
+				Proto:  "tcp",
+				Type:   "test",
+				Host:   "localhost",
+				Port:   100,
+				Health: "/",
 			})
 
 			if err == nil && res.Message == "OK" {
@@ -214,13 +161,11 @@ func TestRegistry_Register(t *testing.T) {
 
 		reg := NewRegistry()
 		res, err := reg.Register(context.Background(), &proto.Service{
-			Proto:     "http",
-			Type:      "test",
-			Host:      u.Hostname(),
-			Port:      1234,
-			HttpPort:  uint32(port),
-			Health:    "/",
-			Signature: "12345",
+			Proto:  "http",
+			Type:   "test",
+			Host:   u.Hostname(),
+			Port:   uint32(port),
+			Health: "/",
 		})
 
 		if err != nil {
@@ -238,7 +183,7 @@ func TestRegistry_SetCustomBalancerFunc(t *testing.T) {
 	reg.SetCustomBalancerFunc(customStupidBalancerFunc)
 
 	for i := 0; i < 5; i++ {
-		best := reg.BalancerFunc(reg, &proto.ServiceType{"test"})
+		best := reg.BalancerFunc(reg, &proto.ServiceType{Type: "test"})
 		if best == nil {
 			t.Fatal("Instance should not be nil")
 		}
@@ -253,7 +198,7 @@ func TestRegistry_RoundRobinBalancerFunc(t *testing.T) {
 	reg := createDummyRegistry(3)
 	var balanceHistory [9]uint32
 	for i := 0; i < 9; i++ {
-		best := RoundRobinBalancerFunc(reg, &proto.ServiceType{"test"})
+		best := RoundRobinBalancerFunc(reg, &proto.ServiceType{Type: "test"})
 		if best == nil {
 			t.Fatal("Instance should not be nil")
 		}
@@ -278,7 +223,7 @@ func TestRegistry_WeightedRoundRobinBalancerFunc(t *testing.T) {
 		reg := createDummyRegistry(3)
 		balanceHistory := make(map[uint32]int)
 		for i := 0; i < 6; i++ {
-			best := WeightedRoundRobinBalancerFunc(reg, &proto.ServiceType{"test"})
+			best := WeightedRoundRobinBalancerFunc(reg, &proto.ServiceType{Type: "test"})
 			if best == nil {
 				t.Fatal("Instance should not be nil")
 			}
@@ -297,7 +242,7 @@ func TestRegistry_WeightedRoundRobinBalancerFunc(t *testing.T) {
 			reg := createDummyRegistry(3)
 			balanceHistory := make(map[uint32]int)
 			for i := 0; i < 6; i++ {
-				best := WeightedRoundRobinBalancerFunc(reg, &proto.ServiceType{"test"})
+				best := WeightedRoundRobinBalancerFunc(reg, &proto.ServiceType{Type: "test"})
 				if best == nil {
 					t.Fatal("Instance should not be nil")
 				}

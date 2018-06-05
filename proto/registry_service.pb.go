@@ -3,7 +3,7 @@
 
 package proto
 
-import proto1 "github.com/golang/protobuf/proto"
+import proto "github.com/golang/protobuf/proto"
 import fmt "fmt"
 import math "math"
 import _ "google.golang.org/genproto/googleapis/api/annotations"
@@ -14,9 +14,15 @@ import (
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
-var _ = proto1.Marshal
+var _ = proto.Marshal
 var _ = fmt.Errorf
 var _ = math.Inf
+
+// This is a compile-time assertion to ensure that this generated file
+// is compatible with the proto package it is being compiled against.
+// A compilation error at this line likely means your copy of the
+// proto package needs to be updated.
+const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ context.Context
@@ -26,8 +32,9 @@ var _ grpc.ClientConn
 // is compatible with the grpc package it is being compiled against.
 const _ = grpc.SupportPackageIsVersion4
 
-// Client API for RegistryService service
-
+// RegistryServiceClient is the client API for RegistryService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type RegistryServiceClient interface {
 	GetHealth(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Health, error)
 	Register(ctx context.Context, in *Service, opts ...grpc.CallOption) (*RegistryResponse, error)
@@ -48,7 +55,7 @@ func NewRegistryServiceClient(cc *grpc.ClientConn) RegistryServiceClient {
 
 func (c *registryServiceClient) GetHealth(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Health, error) {
 	out := new(Health)
-	err := grpc.Invoke(ctx, "/proto.RegistryService/GetHealth", in, out, c.cc, opts...)
+	err := c.cc.Invoke(ctx, "/proto.RegistryService/GetHealth", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +64,7 @@ func (c *registryServiceClient) GetHealth(ctx context.Context, in *Empty, opts .
 
 func (c *registryServiceClient) Register(ctx context.Context, in *Service, opts ...grpc.CallOption) (*RegistryResponse, error) {
 	out := new(RegistryResponse)
-	err := grpc.Invoke(ctx, "/proto.RegistryService/Register", in, out, c.cc, opts...)
+	err := c.cc.Invoke(ctx, "/proto.RegistryService/Register", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +73,7 @@ func (c *registryServiceClient) Register(ctx context.Context, in *Service, opts 
 
 func (c *registryServiceClient) ListServicesTypes(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*ServiceTypesList, error) {
 	out := new(ServiceTypesList)
-	err := grpc.Invoke(ctx, "/proto.RegistryService/ListServicesTypes", in, out, c.cc, opts...)
+	err := c.cc.Invoke(ctx, "/proto.RegistryService/ListServicesTypes", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +82,7 @@ func (c *registryServiceClient) ListServicesTypes(ctx context.Context, in *Empty
 
 func (c *registryServiceClient) ListByType(ctx context.Context, in *ServiceType, opts ...grpc.CallOption) (*ServiceList, error) {
 	out := new(ServiceList)
-	err := grpc.Invoke(ctx, "/proto.RegistryService/ListByType", in, out, c.cc, opts...)
+	err := c.cc.Invoke(ctx, "/proto.RegistryService/ListByType", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +91,7 @@ func (c *registryServiceClient) ListByType(ctx context.Context, in *ServiceType,
 
 func (c *registryServiceClient) BestInstance(ctx context.Context, in *ServiceType, opts ...grpc.CallOption) (*Service, error) {
 	out := new(Service)
-	err := grpc.Invoke(ctx, "/proto.RegistryService/BestInstance", in, out, c.cc, opts...)
+	err := c.cc.Invoke(ctx, "/proto.RegistryService/BestInstance", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +100,7 @@ func (c *registryServiceClient) BestInstance(ctx context.Context, in *ServiceTyp
 
 func (c *registryServiceClient) GetInfo(ctx context.Context, in *ServiceInfo, opts ...grpc.CallOption) (*Service, error) {
 	out := new(Service)
-	err := grpc.Invoke(ctx, "/proto.RegistryService/GetInfo", in, out, c.cc, opts...)
+	err := c.cc.Invoke(ctx, "/proto.RegistryService/GetInfo", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -102,15 +109,14 @@ func (c *registryServiceClient) GetInfo(ctx context.Context, in *ServiceInfo, op
 
 func (c *registryServiceClient) GetInstanceInfo(ctx context.Context, in *InstanceInfo, opts ...grpc.CallOption) (*Service, error) {
 	out := new(Service)
-	err := grpc.Invoke(ctx, "/proto.RegistryService/GetInstanceInfo", in, out, c.cc, opts...)
+	err := c.cc.Invoke(ctx, "/proto.RegistryService/GetInstanceInfo", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// Server API for RegistryService service
-
+// RegistryServiceServer is the server API for RegistryService service.
 type RegistryServiceServer interface {
 	GetHealth(context.Context, *Empty) (*Health, error)
 	Register(context.Context, *Service) (*RegistryResponse, error)
@@ -288,9 +294,11 @@ var _RegistryService_serviceDesc = grpc.ServiceDesc{
 	Metadata: "registry_service.proto",
 }
 
-func init() { proto1.RegisterFile("registry_service.proto", fileDescriptor4) }
+func init() {
+	proto.RegisterFile("registry_service.proto", fileDescriptor_registry_service_54f7b60a09f758ba)
+}
 
-var fileDescriptor4 = []byte{
+var fileDescriptor_registry_service_54f7b60a09f758ba = []byte{
 	// 360 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x84, 0xd0, 0xdd, 0x4a, 0xf3, 0x30,
 	0x18, 0x07, 0x70, 0xde, 0x17, 0xe6, 0x47, 0xd8, 0x9c, 0x7b, 0x84, 0x55, 0xcb, 0xd0, 0x51, 0x71,

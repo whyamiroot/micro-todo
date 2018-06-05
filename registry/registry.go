@@ -394,7 +394,7 @@ func (r *Registry) Register(c context.Context, s *proto.Service) (*proto.Registr
 		return &proto.RegistryResponse{Status: proto.RegistryResponse_NULL, Message: "No service received"}, nil
 	}
 
-	if s.Signature == "" || s.Port == 0 || s.Host == "" {
+	if s.Port == 0 || s.Host == "" {
 		return &proto.RegistryResponse{Status: proto.RegistryResponse_INVALID, Message: "Invalid service"}, nil
 	}
 
@@ -402,21 +402,9 @@ func (r *Registry) Register(c context.Context, s *proto.Service) (*proto.Registr
 		return &proto.RegistryResponse{Status: proto.RegistryResponse_INVALID, Message: "Unsupported protocol"}, nil
 	}
 
-	if (s.Proto == "http" && s.HttpPort == 0) || (s.Proto == "https" && s.HttpsPort == 0) {
-		return &proto.RegistryResponse{Status: proto.RegistryResponse_INVALID, Message: "No port for HTTP/HTTPS server specified"}, nil
-	}
-
 	health := getHealth(s)
 	if health == nil || !health.Up {
 		return &proto.RegistryResponse{Status: proto.RegistryResponse_NOT_IMPLEMENTED, Message: "Health check failed"}, nil
-	}
-
-	if b, err := r.isValidSignature(s); !b {
-		if err != nil {
-			return &proto.RegistryResponse{Status: proto.RegistryResponse_NULL, Message: "No service received"}, nil
-		} else {
-			return &proto.RegistryResponse{Status: proto.RegistryResponse_INVALID, Message: "Service signature is invalid"}, nil
-		}
 	}
 
 	res := make(chan *proto.RegistryResponse)
@@ -475,7 +463,7 @@ func (r *Registry) String(serviceType string, index int) string {
 
 func getHealth(service *proto.Service) *proto.Health {
 	//TODO use TLS if service has defined its HTTPS server
-	healthURL := service.Proto + "://" + service.Host + ":" + strconv.Itoa(int(service.HttpPort))
+	healthURL := service.Proto + "://" + service.Host + ":" + strconv.Itoa(int(service.Port))
 	if service.Health == "" {
 		healthURL += "/"
 	} else {
@@ -675,18 +663,11 @@ func (r *Registry) exists(s *proto.Service) (bool, error) {
 	}
 
 	for _, v := range r.Instances[s.Type] {
-		// Comparing signatures should be enough, when signature check is implemented
-		//TODO: remove everything except for the signature check
-		if v.Signature == s.Signature && v.Host == s.Host && v.HttpPort == s.HttpPort {
+		if v.Host == s.Host && v.Port == s.Port {
 			return true, nil
 		}
 	}
 	return false, nil
-}
-
-func (r *Registry) isValidSignature(s *proto.Service) (bool, error) {
-	//TODO implement
-	return true, nil
 }
 
 func getMaxWeight(list []*proto.Service) uint32 {
